@@ -16,7 +16,6 @@ final class AboutWindowController: NSObject, NSWindowDelegate {
   static let shared = AboutWindowController()
 
   private var window: NSWindow?
-  private var linkButton: NSButton?
 
   private override init() {
     super.init()
@@ -116,7 +115,6 @@ final class AboutWindowController: NSObject, NSWindowDelegate {
     link.contentTintColor = .linkColor
     link.focusRingType = .none
     link.translatesAutoresizingMaskIntoConstraints = false
-    linkButton = link
 
     let copyrightLabel = centeredLabel(AboutContent.copyright, font: UpdatePanelStyle.bodyFont)
 
