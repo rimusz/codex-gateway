@@ -36,7 +36,7 @@ Codex Desktop          Codex CLI
 - **Shared model catalog** — Settings exports models into `~/.codex` so Desktop’s picker and the CLI both see them
 - **Native GPT pass-through** — official OpenAI / ChatGPT requests are untouched
 - **No Codex sign-in needed for local-only use** (e.g. Ollama); sign-in is only required for native GPT/ChatGPT
-- **Menu bar status** with live gateway state + port, and a native Settings window
+- **Menu bar status** with live gateway state + port, plus native Settings and About windows
 - **Open at Login** — optional menu-bar toggle so CodexGateway starts with macOS
 - **Friendly model names** auto-generated from provider model IDs (editable)
 - **Loopback-only gateway** — no management endpoints over HTTP, nothing reachable from the LAN

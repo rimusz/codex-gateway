@@ -279,6 +279,16 @@ class StatusBarController: NSObject, NSMenuDelegate {
 
         menu.addItem(.separator())
 
+        let aboutItem = NSMenuItem(
+          title: "About \(AppIdentity.productName)",
+          action: #selector(openAbout),
+          keyEquivalent: ""
+        )
+        aboutItem.target = self
+        menu.addItem(aboutItem)
+
+        menu.addItem(.separator())
+
         let quitItem = NSMenuItem(title: "Quit", action: #selector(quit), keyEquivalent: "q")
         quitItem.target = self
         menu.addItem(quitItem)
@@ -349,6 +359,12 @@ class StatusBarController: NSObject, NSMenuDelegate {
         }
     }
 #endif
+
+    @objc private func openAbout() {
+        DispatchQueue.main.async {
+            AboutWindowController.shared.show()
+        }
+    }
 
     @objc private func openSettings() {
         DispatchQueue.main.async {

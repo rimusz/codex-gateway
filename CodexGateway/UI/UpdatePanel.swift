@@ -12,20 +12,13 @@ enum UpdatePanel {
     app: Result<UpdateChecker.AppRelease, Error>,
     onDismiss: @escaping () -> Void
   ) {
-    let shouldRestoreAccessory = NSApp.activationPolicy() == .accessory
-      && !NSApp.windows.contains { $0.isVisible }
     NSApp.setActivationPolicy(.regular)
     NSApp.activate(ignoringOtherApps: true)
     NSRunningApplication.current.activate(options: [.activateAllWindows])
 
     let panelHost = UpdatePanelHost(
       app: app,
-      onDismiss: {
-        if shouldRestoreAccessory {
-          NSApp.setActivationPolicy(.accessory)
-        }
-        onDismiss()
-      }
+      onDismiss: onDismiss
     )
     host = panelHost
 
@@ -86,8 +79,13 @@ enum UpdatePanel {
 
   private static func cleanupAndDismiss(onDismiss: @escaping () -> Void) -> () -> Void {
     {
+      let closing = UpdatePanel.panel
       UpdatePanel.host = nil
       UpdatePanel.panelDelegate = nil
+      // Re-evaluate on dismiss: About/Settings may have opened or closed while
+      // this panel was up. A capture-at-show flag can leave `.regular` stuck
+      // with a Dock icon and no windows.
+      AppActivationPolicy.restoreAccessoryIfNoVisibleWindows(excluding: closing)
       onDismiss()
     }
   }
