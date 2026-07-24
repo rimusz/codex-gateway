@@ -70,6 +70,7 @@ codex-gateway/                    # GitHub repo (`rimusz/codex-gateway`; legacy 
 │   ├── main.swift                # NSApplication entry (.accessory)
 │   ├── AppDelegate.swift         # Gateway start/stop, status bar
 │   ├── StatusBarController.swift # Menu bar icon + menu
+│   ├── AppActivationPolicy.swift # Restore .accessory when no windows remain
 │   ├── AppVersion.swift
 │   ├── AppIconProvider.swift
 │   ├── CodexBrandIcon.swift
@@ -96,10 +97,12 @@ codex-gateway/                    # GitHub repo (`rimusz/codex-gateway`; legacy 
 │   │   ├── Paths.swift
 │   │   └── GatewayLog.swift
 │   ├── UI/
+│   │   ├── AboutWindowController.swift # About panel (matches UpdatePanel chrome)
 │   │   ├── SettingsWindowController.swift
 │   │   ├── SettingsView.swift
 │   │   ├── SettingsStore.swift
-│   │   └── UpdatePanel.swift
+│   │   ├── UpdatePanel.swift
+│   │   └── UpdatePanelStyle.swift # Shared About/Update fonts + Dock-rounded icon
 │   └── Resources/Assets.xcassets/
 ├── Tests/CodexGatewayTests/
 ├── scripts/                      # build-macos-app.sh, release.sh, notarize.sh
@@ -202,6 +205,8 @@ Release assets: `CodexGateway-{tag}.app.zip`, legacy `CodexBar-{tag}.app.zip`, `
 
 | Task | Files |
 |------|-------|
+| Open About | `AboutWindowController`, menu **About CodexGateway** |
+| Restore menu-bar mode after windows close | `AppActivationPolicy.restoreAccessoryIfNoVisibleWindows` (About, Settings, UpdatePanel) |
 | Add gateway route | `GatewayServer.swift` |
 | Change translation logic | `Translator.swift` |
 | Model catalog / providers | `ModelCatalog.swift`, `ProviderPresets.swift`, `ProviderModelFetcher.swift`, `Paths.swift` |
@@ -233,6 +238,7 @@ Unit tests in `Tests/CodexGatewayTests/`:
 - `GrokOAuthSessionTests` — auth.json probe/parse/refresh stubs
 - `GrokOAuthClientTests` — Chat→Responses map, SSE→Chat conversion, 401 retry
 - `StatusBarTests` — accessibility labels
+- `AppActivationPolicyTests` — accessory restore when no other windows remain
 - `OpenAtLoginTests` — login-item status mapping + toggle flow
 - `UpdateCheckerTests` — version compare, notarized filter, asset selection
 - `UpdateSettingsStoreTests` — skip/dismiss behavior
