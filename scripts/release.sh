@@ -17,7 +17,6 @@ source "$SCRIPT_DIR/load-dotenv.sh"
 load_dotenv "$ROOT_DIR/.env"
 
 APP_NAME="${APP_NAME:-CodexGateway}"
-LEGACY_APP_NAME="CodexBar"
 RELEASE_TYPE="${RELEASE_TYPE:-unsigned}"
 SIGN_IDENTITY="${SIGN_IDENTITY:-}"
 NOTARY_PROFILE="${NOTARY_PROFILE:-AC_PASSWORD}"
@@ -57,53 +56,22 @@ create_dmg() {
 write_release_notes() {
   local output_file="$1"
   local zip_name="${APP_NAME}-${tag_name}.app.zip"
-  local legacy_zip_name="${LEGACY_APP_NAME}-${tag_name}.app.zip"
   local dmg_name="${APP_NAME}-${tag_name}-macOS.dmg"
 
   if [ "$RELEASE_TYPE" = "notarized" ]; then
     cat > "$output_file" <<EOF
-## Renamed: CodexBar → CodexGateway
-
-This release ships as **CodexGateway** (was CodexBar).
-
-- Settings and keys migrate automatically (\`~/.codexbar\` → \`~/.codexgateway\`).
-- \`CodexBar.app\` is replaced by \`CodexGateway.app\` on update/first launch.
-- Re-enable **Open at Login** once if you used it before (bundle ID changed).
-- Prefer \`${zip_name}\`; \`${legacy_zip_name}\` is included so older CodexBar updaters still work.
-
-## Names
-
-- App: \`CodexGateway.app\`
-- Bundle ID: \`com.rimusz.CodexGateway\`
-
 ## Downloads
 
 - \`${zip_name}\` — Signed + notarized build (recommended)
-- \`${legacy_zip_name}\` — Same build, legacy filename for older CodexBar updaters
 - \`${dmg_name}\` — Signed + notarized DMG
 
 This version is properly code-signed and notarized. No Gatekeeper warnings.
 EOF
   else
     cat > "$output_file" <<EOF
-## Renamed: CodexBar → CodexGateway
-
-This release ships as **CodexGateway** (was CodexBar).
-
-- Settings and keys migrate automatically (\`~/.codexbar\` → \`~/.codexgateway\`).
-- \`CodexBar.app\` is replaced by \`CodexGateway.app\` on update/first launch.
-- Re-enable **Open at Login** once if you used it before (bundle ID changed).
-- Prefer \`${zip_name}\`; \`${legacy_zip_name}\` is included so older CodexBar updaters still work.
-
-## Names
-
-- App: \`CodexGateway.app\`
-- Bundle ID: \`com.rimusz.CodexGateway\`
-
 ## Downloads
 
-- \`${zip_name}\` — Unsigned build (recommended)
-- \`${legacy_zip_name}\` — Same build, legacy filename for older CodexBar updaters
+- \`${zip_name}\` — Unsigned build
 - \`${dmg_name}\` — Unsigned DMG
 
 ## How to bypass Gatekeeper protection (unsigned builds)
@@ -177,7 +145,6 @@ if [ "$RELEASE_TYPE" = "notarized" ]; then
 fi
 
 zip_path="dist/${APP_NAME}-${tag_name}.app.zip"
-legacy_zip_path="dist/${LEGACY_APP_NAME}-${tag_name}.app.zip"
 dmg_path="dist/${APP_NAME}-${tag_name}-macOS.dmg"
 dmg_staging="dist/${APP_NAME}-macOS.dmg"
 release_body_file="$(mktemp)"
@@ -207,12 +174,8 @@ fi
 
 echo "==> Zipping app..."
 ditto -c -k --keepParent "dist/${APP_NAME}.app" "$zip_path"
-# Legacy zip keeps older CodexBar.app clients updating (same binary, legacy folder name).
-rm -rf "dist/${LEGACY_APP_NAME}.app"
-cp -R "dist/${APP_NAME}.app" "dist/${LEGACY_APP_NAME}.app"
-ditto -c -k --keepParent "dist/${LEGACY_APP_NAME}.app" "$legacy_zip_path"
 cp "$dmg_staging" "$dmg_path"
-echo "==> Release assets: $(basename "$zip_path"), $(basename "$legacy_zip_path"), $(basename "$dmg_path")"
+echo "==> Release assets: $(basename "$zip_path"), $(basename "$dmg_path")"
 
 write_release_notes "$release_body_file"
 
@@ -223,14 +186,13 @@ echo "==> Publishing GitHub release ${tag_name}..."
 if gh release view "$tag_name" >/dev/null 2>&1; then
   echo "==> Release ${tag_name} already exists; updating title, notes, and assets..."
   gh release edit "$tag_name" --title "$release_name" --notes-file "$release_body_file"
-  gh release upload "$tag_name" "$zip_path" "$legacy_zip_path" "$dmg_path" --clobber
+  gh release upload "$tag_name" "$zip_path" "$dmg_path" --clobber
 else
   gh release create "$tag_name" \
     --title "$release_name" \
     --draft \
     --generate-notes \
     "$zip_path" \
-    "$legacy_zip_path" \
     "$dmg_path"
 
   generated_notes="$(gh release view "$tag_name" --json body -q .body)"

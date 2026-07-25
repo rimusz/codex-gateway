@@ -94,7 +94,6 @@ No Apple signing secrets required. Release title: **`v{VERSION} (Unsigned)`**. N
 | Asset | Purpose |
 |-------|---------|
 | `CodexGateway-{tag}.app.zip` | Portable app bundle |
-| `CodexBar-{tag}.app.zip` | Same build, legacy filename for older updaters |
 | `CodexGateway-{tag}-macOS.dmg` | DMG installer |
 
 ### Local equivalents

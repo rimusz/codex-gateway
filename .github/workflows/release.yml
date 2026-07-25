@@ -13,7 +13,6 @@ on:
 
 env:
   APP_NAME: CodexGateway
-  LEGACY_APP_NAME: CodexBar
 
 jobs:
   build:
@@ -61,10 +60,6 @@ jobs:
         run: |
           TAG="${{ steps.validate.outputs.tag_name }}"
           ditto -c -k --keepParent "dist/${{ env.APP_NAME }}.app" "dist/${{ env.APP_NAME }}-${TAG}.app.zip"
-          # Legacy zip so older CodexBar.app clients can still find an update asset.
-          rm -rf "dist/${{ env.LEGACY_APP_NAME }}.app"
-          cp -R "dist/${{ env.APP_NAME }}.app" "dist/${{ env.LEGACY_APP_NAME }}.app"
-          ditto -c -k --keepParent "dist/${{ env.LEGACY_APP_NAME }}.app" "dist/${{ env.LEGACY_APP_NAME }}-${TAG}.app.zip"
           cp "dist/${{ env.APP_NAME }}-macOS.dmg" "dist/${{ env.APP_NAME }}-${TAG}-macOS.dmg"
 
       - name: Prepare release notes
@@ -73,27 +68,11 @@ jobs:
           RELEASE_TAG: ${{ steps.validate.outputs.tag_name }}
         run: |
           ZIP_NAME="${{ env.APP_NAME }}-${RELEASE_TAG}.app.zip"
-          LEGACY_ZIP_NAME="${{ env.LEGACY_APP_NAME }}-${RELEASE_TAG}.app.zip"
           DMG_NAME="${{ env.APP_NAME }}-${RELEASE_TAG}-macOS.dmg"
           cat > release-body.txt <<EOF
-          ## Renamed: CodexBar → CodexGateway
-
-          This release ships as **CodexGateway** (was CodexBar).
-
-          - Settings and keys migrate automatically (\`~/.codexbar\` → \`~/.codexgateway\`).
-          - \`CodexBar.app\` is replaced by \`CodexGateway.app\` on update/first launch.
-          - Re-enable **Open at Login** once if you used it before (bundle ID changed).
-          - Prefer \`${ZIP_NAME}\`; \`${LEGACY_ZIP_NAME}\` is included so older CodexBar updaters still work.
-
-          ## Names
-
-          - App: \`CodexGateway.app\`
-          - Bundle ID: \`com.rimusz.CodexGateway\`
-
           ## Downloads
 
-          - \`${ZIP_NAME}\` — Unsigned build (recommended)
-          - \`${LEGACY_ZIP_NAME}\` — Same build, legacy filename for older CodexBar updaters
+          - \`${ZIP_NAME}\` — Unsigned build
           - \`${DMG_NAME}\` — Unsigned DMG
 
           ## How to bypass Gatekeeper protection (unsigned builds)
@@ -126,7 +105,6 @@ jobs:
           overwrite_files: true
           files: |
             dist/${{ env.APP_NAME }}-${{ steps.validate.outputs.tag_name }}.app.zip
-            dist/${{ env.LEGACY_APP_NAME }}-${{ steps.validate.outputs.tag_name }}.app.zip
             dist/${{ env.APP_NAME }}-${{ steps.validate.outputs.tag_name }}-macOS.dmg
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

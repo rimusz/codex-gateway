@@ -31,7 +31,7 @@ If `make release` fails while pushing `v{VERSION}` with “already exists”, th
 ```bash
 git push --force origin "refs/tags/v{VERSION}"
 gh release create "v{VERSION}" --title "v{VERSION} (Notarized)" \
-  dist/CodexGateway-v{VERSION}.app.zip dist/CodexBar-v{VERSION}.app.zip dist/CodexGateway-v{VERSION}-macOS.dmg
+  dist/CodexGateway-v{VERSION}.app.zip dist/CodexGateway-v{VERSION}-macOS.dmg
 ```
 
 (Use `gh release upload … --clobber` if the release already exists.)
@@ -50,7 +50,7 @@ gh release create "v{VERSION}" --title "v{VERSION} (Notarized)" \
 - Bundle ID: `com.rimusz.CodexGateway`
 - App bundle: `dist/CodexGateway.app`, executable `CodexGateway`
 - DMG: `dist/CodexGateway-macOS.dmg`
-- Release zips: `CodexGateway-{tag}.app.zip` + legacy `CodexBar-{tag}.app.zip`
+- Release zip: `CodexGateway-{tag}.app.zip` only (do not publish `CodexBar-*.app.zip`)
 - GitHub repo: `rimusz/codex-gateway` (legacy `rimusz/codex-bar` redirects; updater queries both)
 - Scripts: `scripts/build-macos-app.sh`, `scripts/codesign-app-bundle.sh`, `scripts/notarize.sh`, `scripts/codexgateway-install-update.sh`
 
@@ -58,6 +58,6 @@ gh release create "v{VERSION}" --title "v{VERSION} (Notarized)" \
 
 - Old bundle ID `com.rimusz.CodexBar` — Login Items may need re-enable after upgrade
 - Legacy install helper `codexbar-install-update`
-- Legacy release zip `CodexBar-{tag}.app.zip` for older updaters
+- Older releases may still have `CodexBar-{tag}.app.zip`; new releases publish only `CodexGateway-{tag}.app.zip`
 
 When changing release naming, assets, packaging, or in-app update behavior, update `BUILDING.md` and `ARCHITECTURE.md`.

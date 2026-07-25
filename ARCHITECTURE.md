@@ -43,10 +43,10 @@ CodexGateway is a **menu-bar macOS app** (AppKit) that runs an embedded **gatewa
 | Codex provider | `codexbar` / `[model_providers.codexbar]` → rewritten to `codexgateway` on refresh/patch |
 | Managed markers | `# >>> codexbar managed >>>` → rewritten on refresh/patch |
 | Install helper | legacy `codexbar-install-update` |
-| Release asset | legacy `CodexBar-{tag}.app.zip` for older updaters |
+| Release asset | older releases may still have `CodexBar-{tag}.app.zip`; new releases publish only `CodexGateway-{tag}.app.zip` |
 | App folder | `CodexBar.app` → `CodexGateway.app` via `AppBundleMigration` (rename helper) after an old updater installs into `CodexBar.app`, or immediately when a new-build updater installs |
 
-Releases publish **`CodexGateway-{tag}.app.zip`** plus a legacy **`CodexBar-{tag}.app.zip`** so older updaters still work. Dual zip alone does **not** rename the Finder folder — that happens on first launch of the new binary still living in `CodexBar.app` (`AppBundleMigration` writes a `/tmp` rename script: wait for quit → `mv CodexBar.app CodexGateway.app` → relaunch).
+New releases publish only **`CodexGateway-{tag}.app.zip`** (and the DMG). The in-app updater still accepts a legacy **`CodexBar-{tag}.app.zip`** if present on an older release. Renaming the Finder folder is not done by the zip name — it happens on first launch of the new binary still living in `CodexBar.app` (`AppBundleMigration` writes a `/tmp` rename script: wait for quit → `mv CodexBar.app CodexGateway.app` → relaunch).
 
 Older CodexBar install helpers `ditto` without deleting first, so Launch Services can keep launching a stale `Contents/MacOS/CodexBar` (pre-rename binary) and migration never runs. Builds therefore also ship **`Contents/MacOS/CodexBar` as a copy of `CodexGateway`** so that leftover launch path runs the new code and performs the rename.
 
@@ -152,7 +152,7 @@ CodexGateway checks `https://api.github.com/repos/rimusz/codex-gateway/releases`
 | Component | Role |
 |-----------|------|
 | `UpdateScheduler` | Launch + daily background check (30s delay, 24h interval) |
-| `UpdateChecker` | GitHub API (`rimusz/codex-gateway` + legacy `rimusz/codex-bar`), semver compare, asset `CodexGateway-{tag}.app.zip` (falls back to legacy `CodexBar-{tag}.app.zip`) |
+| `UpdateChecker` | GitHub API (`rimusz/codex-gateway` + legacy `rimusz/codex-bar`), semver compare, asset `CodexGateway-{tag}.app.zip` (falls back to legacy `CodexBar-{tag}.app.zip` on older releases) |
 | `AppUpdater` | Download, codesign/spctl verify, install via `codexgateway-install-update` helper; migrates `CodexBar.app` → `CodexGateway.app` |
 | `UpdatePanel` | Menu **Check for Updates…** / **Upgrade Available…** (⌘U); primary action is a system default button (**Update App** → download/verify → **Install and Restart**, or **Open Release Page** when the notarized release has no `.app.zip`). Panel height is measured from the content chain (including the button stack) so actions are not clipped. |
 | `UpdatePanelModel` | Pure UI decisions (install button vs open release page; skip vs notify) |
@@ -197,7 +197,7 @@ make release    # GitHub release via scripts/release.sh
 
 CI: `.github/workflows/pr.yml` (PR: `make test` + `make app`), `.github/workflows/release.yml` (manual dispatch, unsigned publish). Notarized: local `make release RELEASE_TYPE=notarized`. See `BUILDING.md` → GitHub Releases.
 
-Release assets: `CodexGateway-{tag}.app.zip`, legacy `CodexBar-{tag}.app.zip`, `CodexGateway-{tag}-macOS.dmg`.
+Release assets: `CodexGateway-{tag}.app.zip`, `CodexGateway-{tag}-macOS.dmg` (no new `CodexBar-*.app.zip`).
 
 ---
 
