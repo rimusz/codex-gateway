@@ -31,7 +31,7 @@ SwiftPM macOS menu-bar app with embedded gateway for Codex Desktop.
 - Old bundle ID `com.rimusz.CodexBar` (macOS Login Items may need re-enable)
 - Old config dir `~/.codexbar` → migrated on launch
 - Old provider/markers `codexbar` → rewritten on refresh/patch
-- Legacy release asset `CodexBar-{tag}.app.zip` still published for old updaters
+- Older releases may still have `CodexBar-{tag}.app.zip`; new releases publish only `CodexGateway-{tag}.app.zip`
 - App folder migration `CodexBar.app` → `CodexGateway.app`
 
 ## When editing

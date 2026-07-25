@@ -41,7 +41,7 @@ Output:
 - `dist/CodexGateway.app`
 - `dist/CodexGateway-macOS.dmg`
 
-GitHub release assets use versioned names, e.g. `CodexGateway-v1.0.0.app.zip`, legacy `CodexBar-v1.0.0.app.zip` (same build for older updaters), and `CodexGateway-v1.0.0-macOS.dmg`. The in-app updater downloads `CodexGateway-{tag}.app.zip` from the newest **notarized** release only (`v{VERSION} (Notarized)` title or notarization phrase in release notes); it also accepts the legacy `CodexBar-{tag}.app.zip` asset. Unsigned CI releases are for manual install.
+GitHub release assets use versioned names, e.g. `CodexGateway-v1.0.0.app.zip` and `CodexGateway-v1.0.0-macOS.dmg`. New releases no longer publish a `CodexBar-*.app.zip`. The in-app updater downloads `CodexGateway-{tag}.app.zip` from the newest **notarized** release only (`v{VERSION} (Notarized)` title or notarization phrase in release notes); it can still accept a legacy `CodexBar-{tag}.app.zip` if that asset exists on an older release. Unsigned CI releases are for manual install.
 
 ### Identity
 
@@ -59,7 +59,7 @@ GitHub release assets use versioned names, e.g. `CodexGateway-v1.0.0.app.zip`, l
 | Bundle ID | `com.rimusz.CodexBar` — re-enable Open at Login after upgrade if needed |
 | Config dir | `~/.codexbar` → auto-migrated to `~/.codexgateway` |
 | Install helper | legacy `codexbar-install-update` |
-| Release asset | legacy `CodexBar-{tag}.app.zip` for older updaters |
+| Release asset | older releases may still have `CodexBar-{tag}.app.zip`; new releases publish only `CodexGateway-{tag}.app.zip` |
 | App folder | `CodexBar.app` → `CodexGateway.app` on first launch after an old-updater install (`AppBundleMigration`), or during install when updating from a post-rename build |
 | Legacy exec alias | `Contents/MacOS/CodexBar` is a copy of `CodexGateway` so old ditto-merge upgrades still launch new code |
 
@@ -112,7 +112,7 @@ Release title format (both paths):
 
 - `v{VERSION} (Notarized)` — signed + notarized; recommended for distribution
 - `v{VERSION} (Unsigned)` — development builds; Gatekeeper workarounds in release notes
-- Release notes lead with **Renamed: CodexBar → CodexGateway** (migration bullets + download list); see `scripts/release.sh` / `.github/workflows/release.yml`
+- Release notes list **Downloads** (`CodexGateway-{tag}.app.zip` + DMG only); unsigned notes include Gatekeeper workarounds — see `scripts/release.sh` / `.github/workflows/release.yml`
 
 ### CI (unsigned)
 
@@ -161,4 +161,4 @@ make release
 make release RELEASE_TYPE=notarized
 ```
 
-Release uploads three assets per version: `CodexGateway-{tag}.app.zip`, legacy `CodexBar-{tag}.app.zip`, and `CodexGateway-{tag}-macOS.dmg`.
+Release uploads two assets per version: `CodexGateway-{tag}.app.zip` and `CodexGateway-{tag}-macOS.dmg`.
