@@ -159,6 +159,7 @@ struct DoctorView: View {
 
   @MainActor
   private func run() async {
+    guard DoctorReport.shouldBeginRun(isRunning: isRunning) else { return }
     isRunning = true
     defer { isRunning = false }
     inputs = await DoctorCollector.collect()

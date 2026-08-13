@@ -129,40 +129,38 @@ final class GatewayServer {
       return
     }
 
-    if provider.usesCursorBridge {
-      ensureCursorBridgeReady()
-    }
+    whenCursorBridgeReady(for: provider) {
+      let url = URL(string: "\(provider.base_url.trimmingCharacters(in: CharacterSet(charactersIn: "/")))/chat/completions")!
 
-    let url = URL(string: "\(provider.base_url.trimmingCharacters(in: CharacterSet(charactersIn: "/")))/chat/completions")!
+      var urlRequest = URLRequest(url: url)
+      urlRequest.httpMethod = "POST"
+      urlRequest.setValue("application/json", forHTTPHeaderField: "Content-Type")
+      urlRequest.setValue("Bearer \(provider.api_key)", forHTTPHeaderField: "Authorization")
+      urlRequest.httpBody = try? JSONSerialization.data(withJSONObject: chatBody)
 
-    var urlRequest = URLRequest(url: url)
-    urlRequest.httpMethod = "POST"
-    urlRequest.setValue("application/json", forHTTPHeaderField: "Content-Type")
-    urlRequest.setValue("Bearer \(provider.api_key)", forHTTPHeaderField: "Authorization")
-    urlRequest.httpBody = try? JSONSerialization.data(withJSONObject: chatBody)
-
-    if stream {
-      streamThirdParty(urlRequest: urlRequest, requestedModel: requestedModel, namespaceMap: namespaceMap, response: response)
-    } else {
-      URLSession.shared.dataTask(with: urlRequest) { data, urlResponse, error in
-        let status = (urlResponse as? HTTPURLResponse)?.statusCode ?? 0
-        guard let data, error == nil else {
-          self.json(response, ["error": error?.localizedDescription ?? "Upstream failed"], status: 502)
-          return
-        }
-        if status >= 400 {
-          let preview = String(data: data.prefix(400), encoding: .utf8) ?? "<binary>"
-          GatewayLog.error("Third-party \(requestedModel) -> \(url.absoluteString) status=\(status) preview=\(preview)")
-          self.json(response, GatewayServer.upstreamErrorPayload(status: status, bodyPreview: preview), status: status)
-          return
-        }
-        guard let payload = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
-          self.json(response, GatewayServer.upstreamErrorPayload(status: 502, bodyPreview: "Invalid upstream JSON"), status: 502)
-          return
-        }
-        let translated = Translator.chatCompletionToResponse(payload: payload, requestedModel: requestedModel, namespaceMap: namespaceMap)
-        self.json(response, translated)
-      }.resume()
+      if stream {
+        self.streamThirdParty(urlRequest: urlRequest, requestedModel: requestedModel, namespaceMap: namespaceMap, response: response)
+      } else {
+        URLSession.shared.dataTask(with: urlRequest) { data, urlResponse, error in
+          let status = (urlResponse as? HTTPURLResponse)?.statusCode ?? 0
+          guard let data, error == nil else {
+            self.json(response, ["error": error?.localizedDescription ?? "Upstream failed"], status: 502)
+            return
+          }
+          if status >= 400 {
+            let preview = String(data: data.prefix(400), encoding: .utf8) ?? "<binary>"
+            GatewayLog.error("Third-party \(requestedModel) -> \(url.absoluteString) status=\(status) preview=\(preview)")
+            self.json(response, GatewayServer.upstreamErrorPayload(status: status, bodyPreview: preview), status: status)
+            return
+          }
+          guard let payload = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+            self.json(response, GatewayServer.upstreamErrorPayload(status: 502, bodyPreview: "Invalid upstream JSON"), status: 502)
+            return
+          }
+          let translated = Translator.chatCompletionToResponse(payload: payload, requestedModel: requestedModel, namespaceMap: namespaceMap)
+          self.json(response, translated)
+        }.resume()
+      }
     }
   }
 
@@ -383,37 +381,45 @@ final class GatewayServer {
         return
       }
 
-      if resolved.provider.usesCursorBridge {
-        ensureCursorBridgeReady()
+      whenCursorBridgeReady(for: resolved.provider) {
+        var urlRequest = URLRequest(url: URL(string: "\(resolved.provider.base_url.trimmingCharacters(in: CharacterSet(charactersIn: "/")))/chat/completions")!)
+        urlRequest.httpMethod = "POST"
+        urlRequest.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        urlRequest.setValue("Bearer \(resolved.provider.api_key)", forHTTPHeaderField: "Authorization")
+        urlRequest.httpBody = try? JSONSerialization.data(withJSONObject: chat)
+        URLSession.shared.dataTask(with: urlRequest) { data, urlResponse, error in
+          guard let data else {
+            self.json(response, ["error": error?.localizedDescription ?? "failed"], status: 502)
+            return
+          }
+          let status = (urlResponse as? HTTPURLResponse)?.statusCode ?? 200
+          response.send(status: status, headers: ["Content-Type": "application/json"], body: data)
+        }.resume()
       }
-
-      var urlRequest = URLRequest(url: URL(string: "\(resolved.provider.base_url.trimmingCharacters(in: CharacterSet(charactersIn: "/")))/chat/completions")!)
-      urlRequest.httpMethod = "POST"
-      urlRequest.setValue("application/json", forHTTPHeaderField: "Content-Type")
-      urlRequest.setValue("Bearer \(resolved.provider.api_key)", forHTTPHeaderField: "Authorization")
-      urlRequest.httpBody = try? JSONSerialization.data(withJSONObject: chat)
-      URLSession.shared.dataTask(with: urlRequest) { data, urlResponse, error in
-        guard let data else {
-          self.json(response, ["error": error?.localizedDescription ?? "failed"], status: 502)
-          return
-        }
-        let status = (urlResponse as? HTTPURLResponse)?.statusCode ?? 200
-        response.send(status: status, headers: ["Content-Type": "application/json"], body: data)
-      }.resume()
       return
     }
     passthroughResponses(request: request, body: body, response: response)
   }
 
-  /// Best-effort start of the managed Cursor sidecar before proxying (bounded wait).
-  private func ensureCursorBridgeReady() {
-    if CursorBridgeRuntime.isRunning { return }
-    let semaphore = DispatchSemaphore(value: 0)
+  /// True when Cursor proxy work must hop off `LoopbackHTTPServer`'s serial queue so `/health` stays responsive.
+  static func shouldWaitOffHTTPQueueForCursorBridge(isRunning: Bool) -> Bool {
+    !isRunning
+  }
+
+  /// Starts the managed sidecar without blocking the HTTP server queue, then runs `perform`.
+  private func whenCursorBridgeReady(for provider: ProviderConfig, perform: @escaping () -> Void) {
+    guard provider.usesCursorBridge else {
+      perform()
+      return
+    }
+    if !GatewayServer.shouldWaitOffHTTPQueueForCursorBridge(isRunning: CursorBridgeRuntime.isRunning) {
+      perform()
+      return
+    }
     Task {
       _ = await CursorBridgeRuntime.startIfNeeded()
-      semaphore.signal()
+      perform()
     }
-    _ = semaphore.wait(timeout: .now() + 15)
   }
 
   private func parseJSON(_ data: Data) -> [String: Any]? {

@@ -113,6 +113,24 @@ final class CursorBridgeTests: XCTestCase {
     XCTAssertFalse(CursorBridgeRuntime.Locator.hasNodeModules(at: temp))
   }
 
+  func testStartClaimJoinsInFlightStart() {
+    XCTAssertEqual(CursorBridgeRuntime.startClaim(for: .running), .alreadyDone)
+    XCTAssertEqual(CursorBridgeRuntime.startClaim(for: .starting), .waitInFlight)
+    XCTAssertEqual(CursorBridgeRuntime.startClaim(for: .stopped), .proceed)
+    XCTAssertEqual(CursorBridgeRuntime.startClaim(for: .failed("nope")), .proceed)
+  }
+
+  func testManagedBridgeCommandMatchesSidecarScriptOnly() {
+    XCTAssertTrue(
+      CursorBridgeRuntime.isManagedBridgeCommand(
+        "/opt/homebrew/bin/node /App/Resources/CursorBridge/cursor-openai-bridge.mjs"
+      )
+    )
+    XCTAssertFalse(CursorBridgeRuntime.isManagedBridgeCommand("node some-other-server.js"))
+    XCTAssertFalse(CursorBridgeRuntime.isManagedBridgeCommand("/usr/sbin/httpd"))
+    XCTAssertEqual(CursorBridgeRuntime.managedBridgeScriptName, "cursor-openai-bridge.mjs")
+  }
+
   func testShouldTreatAsRunningAndReattach() {
     XCTAssertTrue(CursorBridgeRuntime.shouldTreatAsRunning(status: .stopped, endpointOnline: true, hasAPIKey: true))
     XCTAssertTrue(CursorBridgeRuntime.shouldTreatAsRunning(status: .running, endpointOnline: false, hasAPIKey: true))

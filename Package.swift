@@ -16,7 +16,7 @@ let package = Package(
             name: "CodexGateway",
             path: "CodexGateway",
             exclude: [
-                // Packaged via scripts/bundle-cursor-bridge.sh (npm install + copy into .app)
+                // Packaged via scripts/bundle-cursor-bridge.sh (npm ci + copy into .app)
                 "Resources/CursorBridge",
             ],
             resources: [

@@ -72,7 +72,7 @@ struct SettingsView: View {
     .toolbar { toolbar }
     .onAppear {
       store.reload()
-      cursorNodeProbe = CursorBridgeRuntime.probeNode()
+      refreshCursorNodeProbe()
       Task {
         cursorBridgeStatus = await CursorBridgeRuntime.reconcile()
       }
@@ -712,7 +712,7 @@ struct SettingsView: View {
     .frame(width: 460)
     .id(isCursor ? "cursor-editor" : (editingProvider?.name ?? "new-provider"))
     .onAppear {
-      cursorNodeProbe = CursorBridgeRuntime.probeNode()
+      refreshCursorNodeProbe()
       cursorBridgeStatus = CursorBridgeRuntime.status
     }
   }
@@ -785,7 +785,7 @@ struct SettingsView: View {
           .buttonStyle(.link)
           .controlSize(.small)
           Button("Re-check") {
-            cursorNodeProbe = CursorBridgeRuntime.probeNode()
+            refreshCursorNodeProbe()
           }
           .controlSize(.small)
         }
@@ -794,6 +794,12 @@ struct SettingsView: View {
     }
     .padding(10)
     .background(RoundedRectangle(cornerRadius: 8).fill(Color.orange.opacity(0.10)))
+  }
+
+  private func refreshCursorNodeProbe() {
+    Task {
+      cursorNodeProbe = await CursorBridgeRuntime.probeNodeAsync()
+    }
   }
 
   private func openNodeBrewInstallInTerminal() {
@@ -1061,7 +1067,7 @@ struct SettingsView: View {
       if preset.isManagedCursorBridge {
         presetAPIKey = ""
         providerAPIKey = ""
-        cursorNodeProbe = CursorBridgeRuntime.probeNode()
+        refreshCursorNodeProbe()
         cursorBridgeStatus = CursorBridgeRuntime.status
       }
     }

@@ -41,6 +41,9 @@ struct DoctorCheck: Identifiable, Equatable, Sendable {
 }
 
 enum DoctorReport {
+  /// Skip overlapping Doctor probes (window re-shown + Re-run while a collect is in flight).
+  static func shouldBeginRun(isRunning: Bool) -> Bool { !isRunning }
+
   static func checks(from inputs: DoctorInputs) -> [DoctorCheck] {
     [
       gatewayCheck(inputs),

@@ -173,6 +173,11 @@ final class LoopbackHTTPServerTests: XCTestCase {
         XCTAssertEqual(forwarded["chatgpt-account-id"], "acct-123")
     }
 
+    func testCursorBridgeWaitsOffHTTPQueueWhenNotRunning() {
+        XCTAssertTrue(GatewayServer.shouldWaitOffHTTPQueueForCursorBridge(isRunning: false))
+        XCTAssertFalse(GatewayServer.shouldWaitOffHTTPQueueForCursorBridge(isRunning: true))
+    }
+
     func testUpstreamErrorPayloadSurfacesStatusAndBody() {
         let payload = GatewayServer.upstreamErrorPayload(
             status: 404,

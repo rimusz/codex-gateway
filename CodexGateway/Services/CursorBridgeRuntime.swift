@@ -28,6 +28,11 @@ enum CursorBridgeRuntime {
       return false
     }
 
+    var isStarting: Bool {
+      if case .starting = self { return true }
+      return false
+    }
+
     var summary: String {
       switch self {
       case .stopped: return "Stopped"
@@ -36,6 +41,27 @@ enum CursorBridgeRuntime {
       case .failed(let message): return message
       }
     }
+  }
+
+  /// How a concurrent `startIfNeeded()` caller should behave given the current status.
+  enum StartClaim: Equatable, Sendable {
+    case alreadyDone
+    case waitInFlight
+    case proceed
+  }
+
+  static func startClaim(for status: Status) -> StartClaim {
+    switch status {
+    case .running: return .alreadyDone
+    case .starting: return .waitInFlight
+    case .stopped, .failed: return .proceed
+    }
+  }
+
+  static let managedBridgeScriptName = "cursor-openai-bridge.mjs"
+
+  static func isManagedBridgeCommand(_ commandLine: String) -> Bool {
+    commandLine.contains(managedBridgeScriptName)
   }
 
   private static let queue = DispatchQueue(label: "com.rimusz.codexgateway.cursor-bridge-runtime")
@@ -120,7 +146,7 @@ enum CursorBridgeRuntime {
     }
 
     static func hasBridgeScript(at directory: URL, fileManager: FileManager = .default) -> Bool {
-      fileManager.fileExists(atPath: directory.appendingPathComponent("cursor-openai-bridge.mjs").path)
+      fileManager.fileExists(atPath: directory.appendingPathComponent(CursorBridgeRuntime.managedBridgeScriptName).path)
     }
 
     static func hasValidateScript(at directory: URL, fileManager: FileManager = .default) -> Bool {
@@ -162,7 +188,7 @@ enum CursorBridgeRuntime {
     guard Locator.hasValidateScript(at: bridgeDir), Locator.hasNodeModules(at: bridgeDir) else {
       return CursorBridge.APIKeyValidation(
         isValid: false,
-        message: "Cursor bridge dependencies missing. Rebuild the app (npm install runs during packaging)."
+        message: "Cursor bridge dependencies missing. Rebuild the app (npm ci runs during packaging)."
       )
     }
 
@@ -227,6 +253,13 @@ enum CursorBridgeRuntime {
     }
   }
 
+  /// Runs `probeNode()` off the caller’s actor so UI / Doctor collection does not stall on `waitUntilExit`.
+  static func probeNodeAsync() async -> CursorBridge.NodeRequirement.Snapshot {
+    await Task.detached(priority: .userInitiated) {
+      probeNode()
+    }.value
+  }
+
   @discardableResult
   static func startIfNeeded() async -> Status {
     guard isEnabled else {
@@ -239,9 +272,15 @@ enum CursorBridgeRuntime {
       return status
     }
 
-    if isRunning { return status }
+    switch claimStart() {
+    case .alreadyDone:
+      return status
+    case .waitInFlight:
+      return await waitForInFlightStart()
+    case .proceed:
+      break
+    }
 
-    setStatus(.starting)
     let keyCheck = await validateAPIKey(apiKey)
     guard keyCheck.isValid else {
       stop()
@@ -265,13 +304,13 @@ enum CursorBridgeRuntime {
       return status
     }
     if !Locator.hasNodeModules(at: bridgeDir) {
-      setStatus(.failed("Cursor bridge dependencies missing. Rebuild the app (npm install runs during packaging)."))
+      setStatus(.failed("Cursor bridge dependencies missing. Rebuild the app (npm ci runs during packaging)."))
       return status
     }
 
     queue.sync { intentionalStop = false }
 
-    let script = bridgeDir.appendingPathComponent("cursor-openai-bridge.mjs")
+    let script = bridgeDir.appendingPathComponent(managedBridgeScriptName)
     let cwd = workspaceDirectory()
     try? FileManager.default.createDirectory(at: cwd, withIntermediateDirectories: true)
 
@@ -419,6 +458,38 @@ enum CursorBridgeRuntime {
     return support
   }
 
+  /// Atomically claim the start slot so concurrent `startIfNeeded()` calls do not spawn two Node processes.
+  private static func claimStart() -> StartClaim {
+    var becameStarting = false
+    let claim: StartClaim = queue.sync {
+      let next = startClaim(for: statusValue)
+      if next == .proceed {
+        statusValue = .starting
+        becameStarting = true
+      }
+      return next
+    }
+    if becameStarting {
+      DispatchQueue.main.async {
+        NotificationCenter.default.post(name: statusDidChange, object: nil)
+      }
+    }
+    return claim
+  }
+
+  private static func waitForInFlightStart(timeout: TimeInterval = 20) async -> Status {
+    let deadline = Date().addingTimeInterval(timeout)
+    while Date() < deadline {
+      let current = status
+      if current.isStarting {
+        try? await Task.sleep(nanoseconds: 100_000_000)
+        continue
+      }
+      return current
+    }
+    return status
+  }
+
   private static func setStatus(_ next: Status) {
     let changed: Bool = queue.sync {
       let didChange = statusValue != next
@@ -460,8 +531,28 @@ enum CursorBridgeRuntime {
     guard let text = String(data: data, encoding: .utf8) else { return }
     for line in text.split(whereSeparator: { $0.isNewline }) {
       guard let pid = Int32(line.trimmingCharacters(in: .whitespaces)) else { continue }
+      guard let command = processCommandLine(pid: pid), isManagedBridgeCommand(command) else { continue }
       kill(pid, SIGTERM)
     }
+  }
+
+  private static func processCommandLine(pid: Int32) -> String? {
+    let task = Process()
+    task.executableURL = URL(fileURLWithPath: "/bin/ps")
+    task.arguments = ["-p", "\(pid)", "-o", "command="]
+    let out = Pipe()
+    task.standardOutput = out
+    task.standardError = FileHandle.nullDevice
+    do {
+      try task.run()
+      task.waitUntilExit()
+    } catch {
+      return nil
+    }
+    let data = out.fileHandleForReading.readDataToEndOfFile()
+    guard let text = String(data: data, encoding: .utf8) else { return nil }
+    let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+    return trimmed.isEmpty ? nil : trimmed
   }
 
   private static func handleTermination(_ finished: Process) {

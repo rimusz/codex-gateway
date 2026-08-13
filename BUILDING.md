@@ -73,7 +73,7 @@ GitHub release assets use versioned names, e.g. `CodexGateway-v1.0.0.app.zip` an
 | `scripts/notarize.sh` | Submit signed app to Apple notary service + staple |
 | `scripts/release.sh` | Local GitHub release publish (`make release`) |
 | `scripts/codexgateway-install-update.sh` | Bundled helper for in-app update install (`Contents/Resources/codexgateway-install-update`) |
-| `scripts/bundle-cursor-bridge.sh` | `npm install` + copy Cursor OpenAI sidecar into `Contents/Resources/CursorBridge` (Node ≥ 22.13; soft-skips if Node missing) |
+| `scripts/bundle-cursor-bridge.sh` | `npm ci` + copy Cursor OpenAI sidecar into `Contents/Resources/CursorBridge` (Node ≥ 22.13; soft-skips if Node missing) |
 
 ## Codesigning / distribution
 

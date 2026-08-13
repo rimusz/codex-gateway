@@ -24,7 +24,7 @@ enum DoctorCollector {
     inputs.signedIn = CodexConfig.isSignedIn()
     inputs.hasCustomModels = SettingsStore.customModelsHidden(signedIn: false, models: models)
 
-    let nodeStatus = CursorBridgeRuntime.probeNode()
+    let nodeStatus = await CursorBridgeRuntime.probeNodeAsync()
     inputs.nodeFound = nodeStatus.isFound
     inputs.nodeVersionDisplay = nodeStatus.versionDisplay
     inputs.nodeMeetsMinimum = nodeStatus.meetsMinimum

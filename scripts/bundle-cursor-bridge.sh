@@ -4,7 +4,7 @@
 #
 # Requires Node.js ≥ 22.13 and npm on PATH.
 # Soft-skips (exit 0) only when Node/npm is missing or too old so packaging can
-# still succeed on machines without a suitable Node. npm install / copy failures
+# still succeed on machines without a suitable Node. npm ci / copy failures
 # exit non-zero so callers do not ship a Cursor-capable UI without the sidecar.
 
 set -euo pipefail
@@ -39,11 +39,11 @@ echo "==> Installing Cursor bridge dependencies in $SRC_DIR (registry: $NPM_REGI
     cd "$SRC_DIR"
     # Hardcoded public npmjs so a stale lockfile / private mirror cannot leave the .app
     # without CursorBridge (Settings would show "bridge script is missing").
-    npm install --omit=dev --no-fund --no-audit --registry="$NPM_REGISTRY"
+    npm ci --omit=dev --no-fund --no-audit --registry="$NPM_REGISTRY"
 )
 
 if [ ! -d "$SRC_DIR/node_modules/@cursor/sdk" ]; then
-    echo "ERROR: Cursor bridge npm install did not produce node_modules/@cursor/sdk" >&2
+    echo "ERROR: Cursor bridge npm ci did not produce node_modules/@cursor/sdk" >&2
     exit 1
 fi
 

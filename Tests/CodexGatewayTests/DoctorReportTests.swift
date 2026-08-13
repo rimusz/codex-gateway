@@ -171,6 +171,11 @@ final class DoctorReportTests: XCTestCase {
     XCTAssertTrue(DoctorReport.primaryRemediation(inputs)?.contains("Gateway") == true)
   }
 
+  func testShouldBeginRunSkipsOverlappingCollect() {
+    XCTAssertTrue(DoctorReport.shouldBeginRun(isRunning: false))
+    XCTAssertFalse(DoctorReport.shouldBeginRun(isRunning: true))
+  }
+
   func testStatusSymbols() {
     XCTAssertEqual(DoctorCheck.Status.ok.symbolName, "checkmark.circle.fill")
     XCTAssertEqual(DoctorCheck.Status.warning.symbolName, "exclamationmark.triangle.fill")
