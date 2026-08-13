@@ -4,6 +4,7 @@ import Foundation
 enum ProviderAuthKind: String, Codable, Sendable {
   case apiKey = "api_key"
   case grokOAuth = "grok_oauth"
+  case cursorBridge = "cursor_bridge"
 }
 
 /// Reads the official Grok CLI session (`~/.grok/auth.json`) and refreshes via `grok models`.
@@ -15,6 +16,13 @@ enum GrokOAuthSession {
 
   static var defaultAuthURL: URL {
     URL(fileURLWithPath: NSHomeDirectory()).appendingPathComponent(".grok/auth.json")
+  }
+
+  static let loginCommand = "grok login"
+
+  /// AppleScript that opens Terminal and runs `grok login`.
+  static func loginTerminalScript(command: String = loginCommand) -> String {
+    CursorBridge.NodeRequirement.brewInstallTerminalScript(command: command)
   }
 
   struct Session: Equatable, Sendable {
@@ -232,4 +240,8 @@ extension ProviderConfig {
   }
 
   var usesGrokOAuth: Bool { resolvedAuthKind == .grokOAuth }
+
+  var usesCursorBridge: Bool {
+    resolvedAuthKind == .cursorBridge || name == ProviderPreset.cursor.providerID
+  }
 }

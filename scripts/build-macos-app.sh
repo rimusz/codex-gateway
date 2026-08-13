@@ -166,6 +166,10 @@ cat > "$APP_BUNDLE/Contents/Info.plist" << EOF
 EOF
 
 chmod +x "$SCRIPT_DIR/codesign-app-bundle.sh"
+chmod +x "$SCRIPT_DIR/bundle-cursor-bridge.sh"
+
+"$SCRIPT_DIR/bundle-cursor-bridge.sh" "$APP_BUNDLE/Contents/Resources"
+
 if [ -n "$SIGN_IDENTITY" ]; then
     "$SCRIPT_DIR/codesign-app-bundle.sh" "$APP_BUNDLE" "$SIGN_IDENTITY"
 else

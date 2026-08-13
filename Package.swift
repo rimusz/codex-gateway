@@ -15,6 +15,10 @@ let package = Package(
         .executableTarget(
             name: "CodexGateway",
             path: "CodexGateway",
+            exclude: [
+                // Packaged via scripts/bundle-cursor-bridge.sh (npm ci + copy into .app)
+                "Resources/CursorBridge",
+            ],
             resources: [
                 .process("Resources/Assets.xcassets")
             ]

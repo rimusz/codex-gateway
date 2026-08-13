@@ -35,6 +35,13 @@ final class AppActivationPolicyTests: XCTestCase {
         styleIncludesTitled: true
       )
     )
+    XCTAssertTrue(
+      AppActivationPolicy.isUserFacingWindow(
+        title: "CodexGateway Doctor",
+        className: "NSWindow",
+        styleIncludesTitled: true
+      )
+    )
   }
 
   func testTitledUpdatePanelIsUserFacing() {

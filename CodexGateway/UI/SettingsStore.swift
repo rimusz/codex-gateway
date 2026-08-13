@@ -116,8 +116,15 @@ final class SettingsStore: ObservableObject {
   }
 
   func deleteProvider(name: String) throws {
+    let wasCursor = providers.first(where: { $0.name == name })?.usesCursorBridge == true
+      || name == ProviderPreset.cursor.providerID
     try ModelCatalog.shared.deleteProvider(name: name)
     try? FetchedModelsStore.shared.delete(providerID: name)
+    if wasCursor {
+      CursorBridgeRuntime.isEnabled = false
+      CursorBridgeRuntime.stop()
+      try? CursorBridgeKeychain.delete()
+    }
     CodexConfig.patchCodexConfig()
     reload()
     announce("Provider deleted.", change: .provider)
@@ -200,6 +207,13 @@ final class SettingsStore: ObservableObject {
       }
       return
     }
+    if preset.isManagedCursorBridge {
+      CursorBridgeRuntime.isEnabled = true
+      statusMessage =
+        "Installed \(preset.displayName). Starting local bridge on port \(CursorBridgeRuntime.managedPort) — add models from the provider row."
+      Task { await CursorBridgeRuntime.startIfNeeded() }
+      return
+    }
     // Default presets install only the provider endpoint/key — no Codex restart needed.
     // Adding models from the provider row is what flags a restart.
     if result.models.isEmpty {
@@ -210,6 +224,28 @@ final class SettingsStore: ObservableObject {
         change: .model
       )
     }
+  }
+
+  /// Saves a Cursor API key (Application Support) and installs/reinstalls the Cursor provider.
+  /// Call only after `CursorBridgeRuntime.validateAPIKey` succeeds.
+  func installCursorPreset(apiKey: String) throws {
+    try CursorBridgeKeychain.save(apiKey)
+    try installPreset(.cursor, apiKey: "local")
+  }
+
+  /// Updates the stored Cursor API key for an already-installed Cursor provider.
+  func updateCursorAPIKey(_ apiKey: String) throws {
+    let trimmed = apiKey.trimmingCharacters(in: .whitespacesAndNewlines)
+    guard !trimmed.isEmpty else {
+      throw SettingsError.validation("A Cursor API key is required.")
+    }
+    try CursorBridgeKeychain.save(trimmed)
+    CursorBridgeRuntime.isEnabled = true
+    Task {
+      CursorBridgeRuntime.stop()
+      _ = await CursorBridgeRuntime.startIfNeeded()
+    }
+    statusMessage = "Cursor API key updated — bridge restarting."
   }
 
   /// Restarts Codex Desktop so it reloads the updated provider/model catalog.

@@ -78,6 +78,9 @@ fi
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 chmod +x "$SCRIPT_DIR/codesign-app-bundle.sh"
+chmod +x "$SCRIPT_DIR/bundle-cursor-bridge.sh"
+
+"$SCRIPT_DIR/bundle-cursor-bridge.sh" "$APP_BUNDLE/Contents/Resources"
 
 cat > "$APP_BUNDLE/Contents/Info.plist" << EOF
 <?xml version="1.0" encoding="UTF-8"?>

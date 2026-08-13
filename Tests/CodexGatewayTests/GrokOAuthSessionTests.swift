@@ -151,4 +151,10 @@ final class GrokOAuthSessionTests: XCTestCase {
     )
     XCTAssertEqual(found?.path, fake.path)
   }
+
+  func testLoginTerminalScriptOpensGrokLogin() {
+    let script = GrokOAuthSession.loginTerminalScript()
+    XCTAssertTrue(script.contains("grok login"))
+    XCTAssertTrue(script.contains("tell application \"Terminal\""))
+  }
 }

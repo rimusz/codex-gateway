@@ -1,11 +1,10 @@
 import AppKit
 import SwiftUI
 
-final class SettingsWindowController: NSObject, NSWindowDelegate {
-  static let shared = SettingsWindowController()
+final class DoctorWindowController: NSObject, NSWindowDelegate {
+  static let shared = DoctorWindowController()
 
   private var window: NSWindow?
-  private let store = SettingsStore()
 
   private override init() {
     super.init()
@@ -14,11 +13,11 @@ final class SettingsWindowController: NSObject, NSWindowDelegate {
   func show() {
     if let window {
       present(window)
-      store.reload()
+      NotificationCenter.default.post(name: .codexGatewayDoctorRerunRequested, object: nil)
       return
     }
 
-    let hosting = NSHostingController(rootView: SettingsView(store: store))
+    let hosting = NSHostingController(rootView: DoctorView())
     let newWindow = Self.makeWindow(contentViewController: hosting, delegate: self)
     window = newWindow
     present(newWindow)
@@ -26,14 +25,12 @@ final class SettingsWindowController: NSObject, NSWindowDelegate {
 
   static func makeWindow(contentViewController: NSViewController, delegate: NSWindowDelegate) -> NSWindow {
     let window = NSWindow(
-      contentRect: NSRect(x: 0, y: 0, width: 680, height: 640),
+      contentRect: NSRect(x: 0, y: 0, width: 560, height: 560),
       styleMask: [.titled, .closable],
       backing: .buffered,
       defer: false
     )
-    window.title = "CodexGateway Settings"
-    // Programmatic NSWindows default to isReleasedWhenClosed = true, which over-releases
-    // the window while `window` still references it — reopening then crashes. Let ARC own it.
+    window.title = "CodexGateway Doctor"
     window.isReleasedWhenClosed = false
     window.delegate = delegate
     window.contentViewController = contentViewController
@@ -57,4 +54,8 @@ final class SettingsWindowController: NSObject, NSWindowDelegate {
   func windowWillClose(_ notification: Notification) {
     AppActivationPolicy.restoreAccessoryIfNoVisibleWindows(excluding: window)
   }
+}
+
+extension Notification.Name {
+  static let codexGatewayDoctorRerunRequested = Notification.Name("CodexGatewayDoctorRerunRequested")
 }

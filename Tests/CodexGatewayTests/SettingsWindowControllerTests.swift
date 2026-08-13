@@ -11,9 +11,38 @@ final class SettingsWindowControllerTests: XCTestCase {
 
         let window = SettingsWindowController.makeWindow(contentViewController: hosting, delegate: delegate)
 
+        XCTAssertEqual(window.title, "CodexGateway Settings")
         XCTAssertFalse(window.isReleasedWhenClosed)
         XCTAssertTrue(window.delegate === delegate)
         XCTAssertTrue(window.contentViewController === hosting)
+        XCTAssertTrue(window.styleMask.contains(.titled))
+        XCTAssertTrue(window.styleMask.contains(.closable))
+        XCTAssertFalse(window.styleMask.contains(.resizable))
+        XCTAssertFalse(window.styleMask.contains(.miniaturizable))
+        XCTAssertTrue(window.standardWindowButton(.miniaturizeButton)?.isHidden ?? true)
+        XCTAssertTrue(window.standardWindowButton(.zoomButton)?.isHidden ?? true)
+        XCTAssertNotNil(window.standardWindowButton(.closeButton))
+        XCTAssertFalse(window.standardWindowButton(.closeButton)?.isHidden ?? true)
+    }
+
+    func testDoctorWindowKeepsWindowAliveAfterClose() {
+        let delegate = TestWindowDelegate()
+        let hosting = NSHostingController(rootView: EmptyView())
+
+        let window = DoctorWindowController.makeWindow(contentViewController: hosting, delegate: delegate)
+
+        XCTAssertEqual(window.title, "CodexGateway Doctor")
+        XCTAssertFalse(window.isReleasedWhenClosed)
+        XCTAssertTrue(window.delegate === delegate)
+        XCTAssertTrue(window.contentViewController === hosting)
+        XCTAssertTrue(window.styleMask.contains(.titled))
+        XCTAssertTrue(window.styleMask.contains(.closable))
+        XCTAssertFalse(window.styleMask.contains(.resizable))
+        XCTAssertFalse(window.styleMask.contains(.miniaturizable))
+        XCTAssertTrue(window.standardWindowButton(.miniaturizeButton)?.isHidden ?? true)
+        XCTAssertTrue(window.standardWindowButton(.zoomButton)?.isHidden ?? true)
+        XCTAssertNotNil(window.standardWindowButton(.closeButton))
+        XCTAssertFalse(window.standardWindowButton(.closeButton)?.isHidden ?? true)
     }
 
     func testAboutWindowMatchesUpdatePanelChrome() {
@@ -40,6 +69,13 @@ final class SettingsWindowControllerTests: XCTestCase {
         XCTAssertTrue(AboutContent.summary.contains("Codex Desktop"))
         XCTAssertTrue(AboutContent.summary.contains("Codex CLI"))
         XCTAssertTrue(AboutContent.versionLine.contains(AppVersion.display))
+    }
+
+    func testSettingsDisclosureDefaults() {
+        XCTAssertFalse(SettingsDisclosureDefaults.addProviderExpanded)
+        XCTAssertFalse(SettingsDisclosureDefaults.presetsExpanded)
+        XCTAssertTrue(SettingsDisclosureDefaults.providersExpanded)
+        XCTAssertTrue(SettingsDisclosureDefaults.modelsExpanded)
     }
 }
 

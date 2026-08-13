@@ -55,6 +55,7 @@ Practical notes for this repo:
 | Gateway / Codex integration surface | `.cursor/skills/codexgateway-gateway/SKILL.md`, `codex-gateway-integration.mdc` if needed |
 | Release/version/packaging behavior | `.cursor/skills/codexgateway-release/SKILL.md` |
 | Dev workflow, make targets, testing | `.cursor/skills/codexgateway-dev/SKILL.md` |
+| Commit / push / PR / CI + Copilot loop | `.cursor/skills/ship-pr/SKILL.md` |
 | Agent entry / repo conventions | `AGENTS.md` |
 
 `ARCHITECTURE.md` is the canonical internal reference — keep it accurate when structure or data flow changes.

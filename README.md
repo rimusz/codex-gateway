@@ -2,13 +2,13 @@
 
 **Use any OpenAI-compatible model in Codex Desktop and Codex CLI — from a macOS menu bar app.**
 
-Codex Desktop and the Codex CLI normally talk only to OpenAI's own models. CodexGateway sits quietly in your menu bar and runs a tiny local gateway that lets both route to **third-party providers** (xAI API key, Grok OAuth via the official Grok CLI, DeepSeek, OpenRouter, Z.ai, Kimi, Qwen, MiniMax, Cline Pass, …) or **local models** (Ollama) — while still passing native GPT/ChatGPT requests straight through to OpenAI. You configure providers and models in a native **Settings** window; Desktop and CLI then share the same gateway via `~/.codex/config.toml`.
+Codex Desktop and the Codex CLI normally talk only to OpenAI's own models. CodexGateway sits quietly in your menu bar and runs a tiny local gateway that lets both route to **third-party providers** (Cursor via a local bridge, xAI API key, Grok OAuth via the official Grok CLI, DeepSeek, OpenRouter, Z.ai, Kimi, Qwen, MiniMax, Cline Pass, …) or **local models** (Ollama) — while still passing native GPT/ChatGPT requests straight through to OpenAI. You configure providers and models in a native **Settings** window; Desktop and CLI then share the same gateway via `~/.codex/config.toml`.
 
 ![CodexGateway Settings and menu bar](docs/screenshots/settings-and-menu.png)
 
 > **Formerly CodexBar.** The app was renamed to **CodexGateway**. Existing installs keep your providers and keys — see [Upgrading from CodexBar](#upgrading-from-codexbar).
 
-> Most providers must expose an OpenAI-compatible `/chat/completions` endpoint. (Cursor's API, for example, only lists models and has no public chat-completions endpoint, so it can't be used here.) **xAI Grok (OAuth)** is the exception: it reuses your Grok CLI login and talks to xAI's CLI chat proxy instead of storing an API key.
+> Most providers must expose an OpenAI-compatible `/chat/completions` endpoint. **Cursor** is supported via a managed local Node sidecar (`@cursor/sdk` on `127.0.0.1:18788`) — paste a Cursor API key from [cursor.com/dashboard](https://cursor.com/dashboard) → Integrations. Settings checks that Node.js ≥ 22.13 is installed (Homebrew `brew install node`, or [nodejs.org](https://nodejs.org/)). The bridge is inference-only (assistant text); Codex keeps its own tools. **xAI Grok (OAuth)** reuses your Grok CLI login and talks to xAI's CLI chat proxy instead of storing an API key.
 
 ---
 
@@ -33,10 +33,13 @@ Codex Desktop          Codex CLI
 ## Features
 
 - **Third-party & local models in Codex Desktop and CLI** via Responses ⇄ Chat Completions translation
+- **Cursor provider** — managed local OpenAI bridge (port `18788`) with dashboard API key; Fetch models from the sidecar, then add to the Codex catalog
+- **Custom provider examples** — Settings → **Add Provider** → Add custom provider includes a **Fill Spark example** for NVIDIA DGX Spark (`http://spark:8001/v1`)
 - **Shared model catalog** — Settings exports models into `~/.codex` so Desktop’s picker and the CLI both see them
 - **Native GPT pass-through** — official OpenAI / ChatGPT requests are untouched
 - **No Codex sign-in needed for local-only use** (e.g. Ollama); sign-in is only required for native GPT/ChatGPT
-- **Menu bar status** with live gateway state + port, plus native Settings and About windows
+- **Menu bar status** with live gateway state + port; Cursor Bridge address appears on a second line only when the Cursor provider is installed; plus native Settings, Doctor, and About windows
+- **Doctor** — menu **Doctor…** (⌘D) or Settings toolbar: checks the local gateway, Codex config/sign-in, Node.js (for Cursor), Cursor API key/sidecar, and Grok OAuth
 - **Open at Login** — optional menu-bar toggle so CodexGateway starts with macOS
 - **Friendly model names** auto-generated from provider model IDs (editable)
 - **Loopback-only gateway** — no management endpoints over HTTP, nothing reachable from the LAN
@@ -77,20 +80,22 @@ Existing installs upgrade smoothly:
 1. Launch CodexGateway — a status icon appears in the menu bar.
 2. (Optional) Menu bar → **Open at Login** so the gateway starts automatically after reboot.
 3. Open **Settings** (menu bar → Settings, or ⌘,).
-4. **Install a provider preset** and enter its API key (skipped for Ollama and **xAI Grok (OAuth)** — OAuth uses `grok login` / `~/.grok/auth.json`).
+4. Open **Add Provider**, install a provider preset, and enter its API key (skipped for Ollama and **xAI Grok (OAuth)** — OAuth uses `grok login` / `~/.grok/auth.json`).
 5. Click **Add model** on the provider row and pick the models you want (Grok OAuth seeds a suggested model on install).
 6. Restart Codex when prompted (**Restart Codex**, ⌘R) so Desktop/CLI reload config.
 7. Pick a model in **Codex Desktop** (model picker) or the **Codex CLI** — your custom models are available in both.
+
+If the gateway, Codex config, Node.js, Cursor, or Grok OAuth looks off, open **Doctor…** (⌘D) from the menu bar or the Settings toolbar.
 
 > **Custom models require you to be signed in to Codex** — a **free account is enough**. Signed out, Codex only shows its built-in fallback models and labels any active custom model as "Custom". (Native GPT/ChatGPT models still need an OpenAI/ChatGPT account.) When you have custom models but Codex is signed out, Settings shows a reminder.
 
 ## Managing providers & models
 
-Everything lives in the **Settings** window — no browser needed.
+Everything lives in the **Settings** window — no browser needed. **Add Provider** (presets and custom add) starts collapsed. The **Providers** and **Models** lists can be collapsed (they start expanded) so you can focus on one at a time.
 
 ### Providers
 
-Install a built-in preset (**Z.ai, Kimi, Qwen, Xiaomi MiMo, Cline Pass, MiniMax, DeepSeek, xAI Grok (API), xAI Grok (OAuth), OpenRouter, Ollama**) or add a custom OpenAI-compatible endpoint. You're prompted for an API key when the provider needs one. Provider rows show a compact model count and status.
+Install a built-in preset from **Add Provider** (**Z.ai, Kimi, Qwen, Xiaomi MiMo, Cline Pass, MiniMax, DeepSeek, xAI Grok (API), xAI Grok (OAuth), OpenRouter, Ollama**) or **Add custom provider**. You're prompted for an API key when the provider needs one. Provider rows show a compact model count and status.
 
 **xAI Grok (API) vs xAI Grok (OAuth):** keep them separate. **xAI Grok (API)** uses an API key against `api.x.ai` and fetches models from that API. **xAI Grok (OAuth)** uses the official Grok CLI session (`npm i -g @xai-official/grok` then `grok login`), forwards through xAI’s CLI chat proxy, and fetches the model list from the CLI OAuth catalog (`/models-v2`) — no key in `providers.json`. Both can be installed side by side.
 

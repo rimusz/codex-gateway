@@ -45,6 +45,8 @@ enum RestartCodexConfirmation {
 }
 
 enum StatusBarMenuCopy {
+  static let doctorTitle = "Doctor…"
+
   static func updateMenuTitle(hasActionableUpdate: Bool) -> String {
     hasActionableUpdate ? "Upgrade Available…" : "Check for Updates…"
   }
@@ -67,6 +69,26 @@ enum StatusBarMenuCopy {
   ) -> String {
     "\(gatewayStateLabel(status)) · \(host):\(port)"
   }
+
+  /// Menu line for the managed Cursor sidecar. `nil` when Cursor is not installed.
+  static func cursorBridgeStatusTitle(
+    isEnabled: Bool,
+    status: CursorBridgeRuntime.Status,
+    host: String = Paths.gatewayHost,
+    port: Int = CursorBridgeRuntime.managedPort
+  ) -> String? {
+    guard isEnabled else { return nil }
+    switch status {
+    case .running:
+      return "Cursor Bridge · \(host):\(port)"
+    case .starting:
+      return "Cursor Bridge · Starting…"
+    case .stopped:
+      return "Cursor Bridge · Stopped"
+    case .failed:
+      return "Cursor Bridge · Error"
+    }
+  }
 }
 
 /// Pure restart-gating logic, extracted so it can be unit-tested without
@@ -85,6 +107,7 @@ class StatusBarController: NSObject, NSMenuDelegate {
   private var menu: NSMenu
   private var updateCheckItem: NSMenuItem?
   private var gatewayStatusItem: NSMenuItem?
+  private var cursorBridgeStatusItem: NSMenuItem?
   private var openAtLoginItem: NSMenuItem?
   private(set) var currentStatus: AppStatus = .idle
     private var animationTimer: Timer?
@@ -124,8 +147,16 @@ class StatusBarController: NSObject, NSMenuDelegate {
             object: nil
         )
 
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(handleCursorBridgeStatusChanged),
+            name: .codexGatewayCursorBridgeRuntimeStatusDidChange,
+            object: nil
+        )
+
         DispatchQueue.main.async { [weak self] in
             self?.refreshUpdateMenuItem()
+            self?.refreshCursorBridgeMenuItem()
         }
     }
 
@@ -227,6 +258,12 @@ class StatusBarController: NSObject, NSMenuDelegate {
         }
     }
 
+    @objc private func handleCursorBridgeStatusChanged() {
+        DispatchQueue.main.async { [weak self] in
+            self?.refreshCursorBridgeMenuItem()
+        }
+    }
+
     private func setupMenu() {
     let titleItem = NSMenuItem(title: "CodexGateway \(AppVersion.display)", action: nil, keyEquivalent: "")
     titleItem.isEnabled = false
@@ -241,11 +278,26 @@ class StatusBarController: NSObject, NSMenuDelegate {
     gatewayStatusItem = gatewayItem
     menu.addItem(gatewayItem)
 
+    let cursorItem = NSMenuItem(title: "", action: nil, keyEquivalent: "")
+    cursorItem.isEnabled = false
+    cursorItem.isHidden = true
+    cursorBridgeStatusItem = cursorItem
+    menu.addItem(cursorItem)
+    refreshCursorBridgeMenuItem()
+
     menu.addItem(.separator())
 
     let settingsItem = NSMenuItem(title: "Settings", action: #selector(openSettings), keyEquivalent: ",")
         settingsItem.target = self
         menu.addItem(settingsItem)
+
+        let doctorItem = NSMenuItem(
+          title: StatusBarMenuCopy.doctorTitle,
+          action: #selector(openDoctor),
+          keyEquivalent: "d"
+        )
+        doctorItem.target = self
+        menu.addItem(doctorItem)
 
         let openAtLoginItem = NSMenuItem(
           title: OpenAtLoginMenuCopy.title,
@@ -372,6 +424,12 @@ class StatusBarController: NSObject, NSMenuDelegate {
         }
     }
 
+    @objc private func openDoctor() {
+        DispatchQueue.main.async {
+            DoctorWindowController.shared.show()
+        }
+    }
+
     @objc private func toggleOpenAtLogin() {
       DispatchQueue.main.async { [weak self] in
         self?.applyOpenAtLoginToggle()
@@ -400,6 +458,16 @@ class StatusBarController: NSObject, NSMenuDelegate {
 
     func menuWillOpen(_ menu: NSMenu) {
       refreshOpenAtLoginMenuItem()
+      refreshCursorBridgeMenuItem()
+    }
+
+    private func refreshCursorBridgeMenuItem() {
+      let title = StatusBarMenuCopy.cursorBridgeStatusTitle(
+        isEnabled: CursorBridgeRuntime.isEnabled,
+        status: CursorBridgeRuntime.status
+      )
+      cursorBridgeStatusItem?.title = title ?? ""
+      cursorBridgeStatusItem?.isHidden = title == nil
     }
 
     private func refreshOpenAtLoginMenuItem(status: OpenAtLogin.Status = OpenAtLogin.status) {

@@ -3,6 +3,7 @@
 .swiftpm/
 *.xcodeproj
 CodexBar.app/
+CodexGateway/Resources/CursorBridge/node_modules/
 dist/
 .env
 *.dSYM
