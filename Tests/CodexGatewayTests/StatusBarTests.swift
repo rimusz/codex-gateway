@@ -30,6 +30,10 @@ final class StatusBarTests: XCTestCase {
         XCTAssertEqual(StatusBarMenuCopy.updateMenuTitle(hasActionableUpdate: true), "Upgrade Available…")
     }
 
+    func testDoctorMenuTitle() {
+        XCTAssertEqual(StatusBarMenuCopy.doctorTitle, "Doctor…")
+    }
+
     func testGatewayStateLabelForEachStatus() {
         XCTAssertEqual(StatusBarMenuCopy.gatewayStateLabel(.idle), "Running")
         XCTAssertEqual(StatusBarMenuCopy.gatewayStateLabel(.loading), "Starting…")
@@ -51,5 +55,46 @@ final class StatusBarTests: XCTestCase {
     func testGatewayStatusTitleDefaultsToConfiguredAddress() {
         let title = StatusBarMenuCopy.gatewayStatusTitle(.idle)
         XCTAssertTrue(title.contains("\(Paths.gatewayHost):\(Paths.gatewayPort)"))
+    }
+
+    func testCursorBridgeStatusTitleHiddenWhenNotEnabled() {
+        XCTAssertNil(
+            StatusBarMenuCopy.cursorBridgeStatusTitle(isEnabled: false, status: .running)
+        )
+        XCTAssertNil(
+            StatusBarMenuCopy.cursorBridgeStatusTitle(isEnabled: false, status: .stopped)
+        )
+    }
+
+    func testCursorBridgeStatusTitleWhenEnabled() {
+        XCTAssertEqual(
+            StatusBarMenuCopy.cursorBridgeStatusTitle(
+                isEnabled: true,
+                status: .running,
+                host: "127.0.0.1",
+                port: 18788
+            ),
+            "Cursor Bridge · 127.0.0.1:18788"
+        )
+        XCTAssertEqual(
+            StatusBarMenuCopy.cursorBridgeStatusTitle(isEnabled: true, status: .starting),
+            "Cursor Bridge · Starting…"
+        )
+        XCTAssertEqual(
+            StatusBarMenuCopy.cursorBridgeStatusTitle(isEnabled: true, status: .stopped),
+            "Cursor Bridge · Stopped"
+        )
+        XCTAssertEqual(
+            StatusBarMenuCopy.cursorBridgeStatusTitle(isEnabled: true, status: .failed("boom")),
+            "Cursor Bridge · Error"
+        )
+    }
+
+    func testCursorBridgeStatusTitleDefaultsToManagedAddress() {
+        let title = StatusBarMenuCopy.cursorBridgeStatusTitle(isEnabled: true, status: .running)
+        XCTAssertEqual(
+            title,
+            "Cursor Bridge · \(Paths.gatewayHost):\(CursorBridgeRuntime.managedPort)"
+        )
     }
 }

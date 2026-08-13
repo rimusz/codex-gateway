@@ -9,7 +9,7 @@ Pure-Swift macOS menu-bar app with an embedded gateway for Codex Desktop.
 ## Cursor in this repo
 
 - Rules: `.cursor/rules/` (architecture, Swift/AppKit, gateway integration, menu bar, **docs-and-tests**)
-- Skills: `.cursor/skills/` (dev workflow, release, gateway/Codex integration)
+- Skills: `.cursor/skills/` (dev workflow, release, gateway/Codex integration, ship-pr)
 - Agents: `.cursor/agents/` (planner, implementer, auditor, verifier for orchestrator mode)
 
 ## Boundaries

@@ -11,6 +11,7 @@ enum ProviderPreset: String, CaseIterable, Identifiable {
   case deepseek
   case xai
   case grokOAuth
+  case cursor
   case openrouter
   case ollama
 
@@ -27,6 +28,7 @@ enum ProviderPreset: String, CaseIterable, Identifiable {
     case .deepseek: return "DeepSeek"
     case .xai: return "xAI Grok (API)"
     case .grokOAuth: return "xAI Grok (OAuth)"
+    case .cursor: return "Cursor"
     case .openrouter: return "OpenRouter"
     case .ollama: return "Ollama (local)"
     }
@@ -43,6 +45,7 @@ enum ProviderPreset: String, CaseIterable, Identifiable {
     case .deepseek: return "deepseek"
     case .xai: return "xai"
     case .grokOAuth: return "grok-oauth"
+    case .cursor: return "cursor"
     case .openrouter: return "openrouter"
     case .ollama: return "ollama"
     }
@@ -59,6 +62,7 @@ enum ProviderPreset: String, CaseIterable, Identifiable {
     case .deepseek: return "https://api.deepseek.com"
     case .xai: return "https://api.x.ai/v1"
     case .grokOAuth: return GrokOAuthClient.defaultBaseURL
+    case .cursor: return CursorBridge.managedEndpoint.baseURL
     case .openrouter: return "https://openrouter.ai/api/v1"
     case .ollama: return "http://localhost:11434/v1"
     }
@@ -67,6 +71,7 @@ enum ProviderPreset: String, CaseIterable, Identifiable {
   var defaultAPIKey: String {
     switch self {
     case .ollama: return "ollama"
+    case .cursor: return "local"
     case .grokOAuth: return ""
     default: return ""
     }
@@ -82,9 +87,13 @@ enum ProviderPreset: String, CaseIterable, Identifiable {
   var authKind: ProviderAuthKind {
     switch self {
     case .grokOAuth: return .grokOAuth
+    case .cursor: return .cursorBridge
     default: return .apiKey
     }
   }
+
+  /// True when this preset is the CodexGateway-managed Cursor sidecar (local secret + process lifecycle).
+  var isManagedCursorBridge: Bool { self == .cursor }
 
   /// When true, install also upserts `catalogModels()` (no live `/models` fetch).
   var seedsSuggestedModelOnInstall: Bool {
@@ -104,6 +113,7 @@ enum ProviderPreset: String, CaseIterable, Identifiable {
     case .deepseek: return "deepseek-v4-pro"
     case .xai: return "grok-4"
     case .grokOAuth: return "grok-4.5"
+    case .cursor: return "composer-2.5"
     case .openrouter: return "openrouter/auto"
     case .ollama: return "llama3.2"
     case .clinePass: return "cline-pass/glm-5.2"
@@ -154,6 +164,16 @@ enum ProviderPreset: String, CaseIterable, Identifiable {
   }
 
   func providerConfig(apiKey: String) -> ProviderConfig {
+    if self == .cursor {
+      return ProviderConfig(
+        name: providerID,
+        display_name: displayName,
+        base_url: baseURL,
+        api_key: "local",
+        vision_model: nil,
+        auth_kind: ProviderAuthKind.cursorBridge.rawValue
+      )
+    }
     let key = apiKey.trimmingCharacters(in: .whitespacesAndNewlines)
     return ProviderConfig(
       name: providerID,
@@ -192,6 +212,7 @@ enum ProviderPreset: String, CaseIterable, Identifiable {
     case .deepseek: return "DeepSeek V4 Pro"
     case .xai: return "xAI Grok 4 (API)"
     case .grokOAuth: return "xAI Grok 4.5 (OAuth)"
+    case .cursor: return "Cursor Composer 2.5"
     case .openrouter: return "OpenRouter Auto"
     case .ollama: return "Ollama Llama 3.2"
     case .clinePass:

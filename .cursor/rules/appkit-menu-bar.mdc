@@ -10,7 +10,7 @@ alwaysApply: false
 
 - Icon via `CodexBrandIcon.mark()` (template image from bundled `MenuBarIcon` assets); fallback to drawn status dot.
 - Status states: `AppStatus` (idle, loading, error, offline) with accessibility labels.
-- Menu header shows `CodexGateway {AppVersion.display}` plus a disabled status line (`StatusBarMenuCopy.gatewayStatusTitle`, e.g. `Running · 127.0.0.1:8765`) updated from `AppStatus` on each health poll.
+- Menu header shows `CodexGateway {AppVersion.display}` plus a disabled status line (`StatusBarMenuCopy.gatewayStatusTitle`, e.g. `Running · 127.0.0.1:8765`) updated from `AppStatus` on each health poll. When the Cursor provider is installed (`CursorBridgeRuntime.isEnabled`), a second disabled line (`StatusBarMenuCopy.cursorBridgeStatusTitle`, e.g. `Cursor Bridge · 127.0.0.1:18788`) appears under it; it is hidden when Cursor is not set.
 - Actions: Settings (native window), Restart Codex, Quit.
 - Restart Codex from the menu must show confirmation before restarting Codex Desktop.
 - Reset/Update Gateway Config lives in Settings and must show confirmation before restarting Codex. The label toggles: **Reset** (Codex config in sync — resets only Codex's config, keeps `~/.codexgateway` data) vs **Update** (Codex config out of date — re-applies CodexGateway models).

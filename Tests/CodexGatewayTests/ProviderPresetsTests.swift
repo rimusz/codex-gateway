@@ -74,6 +74,24 @@ final class ProviderPresetsTests: XCTestCase {
         XCTAssertEqual(models.first?.display_name, "xAI Grok 4.5 (OAuth)")
     }
 
+    func testCursorPresetDefinition() {
+        let preset = ProviderPreset.cursor
+        XCTAssertEqual(preset.displayName, "Cursor")
+        XCTAssertEqual(preset.providerID, "cursor")
+        XCTAssertEqual(preset.baseURL, "http://127.0.0.1:18788/v1")
+        XCTAssertEqual(preset.defaultAPIKey, "local")
+        XCTAssertTrue(preset.requiresAPIKeyPrompt)
+        XCTAssertTrue(preset.isManagedCursorBridge)
+        XCTAssertTrue(preset.supportsModelListingFetch)
+        XCTAssertEqual(preset.authKind, .cursorBridge)
+        let config = preset.providerConfig(apiKey: "key_should_not_persist")
+        XCTAssertEqual(config.api_key, "local")
+        XCTAssertEqual(config.auth_kind, "cursor_bridge")
+        XCTAssertTrue(config.usesCursorBridge)
+        XCTAssertEqual(preset.suggestedModel, "composer-2.5")
+        XCTAssertEqual(preset.catalogModels().first?.display_name, "Cursor Composer 2.5")
+    }
+
     func testOpenRouterPresetDefinition() {
         let preset = ProviderPreset.openrouter
         XCTAssertEqual(preset.displayName, "OpenRouter")
@@ -100,6 +118,7 @@ final class ProviderPresetsTests: XCTestCase {
         XCTAssertTrue(ids.contains("clinePass"))
         XCTAssertTrue(ids.contains("xai"))
         XCTAssertTrue(ids.contains("grokOAuth"))
+        XCTAssertTrue(ids.contains("cursor"))
         XCTAssertTrue(ids.contains("openrouter"))
     }
 

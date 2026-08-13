@@ -31,6 +31,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
     Paths.prepare()
     GatewayServer.shared.start()
+    Task { await CursorBridgeRuntime.startIfNeeded() }
     CodexAuthWatcher.shared.start()
     log("[App] Started embedded Swift gateway on :8765")
     if let appIcon = AppIconProvider.image() {
@@ -62,12 +63,14 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     healthTimer?.invalidate()
     CodexAuthWatcher.shared.stop()
     GatewayServer.shared.stop()
+    CursorBridgeRuntime.stop()
   }
 
   func applicationWillTerminate(_ notification: Notification) {
     healthTimer?.invalidate()
     CodexAuthWatcher.shared.stop()
     GatewayServer.shared.stop()
+    CursorBridgeRuntime.stop()
     log("[App] Stopped embedded gateway")
   }
 

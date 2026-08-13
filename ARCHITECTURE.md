@@ -79,9 +79,15 @@ codex-gateway/                    # GitHub repo (`rimusz/codex-gateway`; legacy 
 │   │   ├── LoopbackHTTPServer.swift
 │   │   ├── Translator.swift      # Responses ↔ Chat translation
 │   │   ├── ModelCatalog.swift    # custom_model_catalog.json + providers
-│   │   ├── ProviderPresets.swift # Built-in presets (incl. xAI API + Grok OAuth)
+│   │   ├── ProviderPresets.swift # Built-in presets (incl. Cursor bridge, xAI API + Grok OAuth)
+│   │   ├── CustomProviderExample.swift # Spark DeepSeek fill-in for custom provider editor
 │   │   ├── GrokOAuthSession.swift # ~/.grok/auth.json + `grok models` refresh
 │   │   ├── GrokOAuthClient.swift  # CLI chat proxy (Responses) forwarder
+│   │   ├── CursorBridge.swift     # Managed Cursor OpenAI bridge helpers (port 18788)
+│   │   ├── CursorBridgeRuntime.swift # Node sidecar lifecycle
+│   │   ├── CursorBridgeKeychain.swift # Application Support secret for CURSOR_API_KEY
+│   │   ├── DoctorReport.swift    # Pure Doctor check mapping (gateway, Codex, Node, Cursor, Grok)
+│   │   ├── DoctorCollector.swift # Live probes for DoctorInputs
 │   │   ├── ProviderModelFetcher.swift # OpenAI /models + Cline Pass recommended-models
 │   │   ├── FetchedModelsStore.swift   # ~/.codexgateway/fetched_models.json cache
 │   │   ├── ZstdBridge.swift         # zstd decompress for Codex request bodies
@@ -98,12 +104,16 @@ codex-gateway/                    # GitHub repo (`rimusz/codex-gateway`; legacy 
 │   │   └── GatewayLog.swift
 │   ├── UI/
 │   │   ├── AboutWindowController.swift # About panel (matches UpdatePanel chrome)
+│   │   ├── DoctorWindowController.swift
+│   │   ├── DoctorView.swift
 │   │   ├── SettingsWindowController.swift
 │   │   ├── SettingsView.swift
 │   │   ├── SettingsStore.swift
 │   │   ├── UpdatePanel.swift
 │   │   └── UpdatePanelStyle.swift # Shared About/Update fonts + Dock-rounded icon
-│   └── Resources/Assets.xcassets/
+│   └── Resources/
+│       ├── Assets.xcassets/
+│       └── CursorBridge/         # cursor-openai-bridge.mjs (+ npm bundle at packaging)
 ├── Tests/CodexGatewayTests/
 ├── scripts/                      # build-macos-app.sh, release.sh, notarize.sh
 ├── Makefile
@@ -166,7 +176,7 @@ Install helper: `scripts/codexgateway-install-update.sh` → bundled as `Content
 
 | Path | Purpose |
 |------|---------|
-| `~/.codexgateway/custom_model_catalog.json` | CodexGateway internal model catalog (routing metadata). Raw model ids get friendly display names via `ModelCatalog.prettyDisplayName` / `normalizeDisplayNames` (run on Settings reload + gateway startup; drops `vendor/model` prefixes, collapses doubled vendors, title-cases, prefixes the provider brand Cline-style via `providerBrand`, and appends `(API)` / `(OAuth)` for xAI vs Grok OAuth, e.g. "xAI Grok 4.5 (API)"); user-edited names are preserved. `ProviderConfig.displayLabel` prefers a stored `display_name` over the built-in preset title. Providers and models are listed A–Z by display name in Settings; custom Codex picker entries are exported in that order. |
+| `~/.codexgateway/custom_model_catalog.json` | CodexGateway internal model catalog (routing metadata). Raw model ids get friendly display names via `ModelCatalog.prettyDisplayName` / `normalizeDisplayNames` (run on Settings reload + gateway startup; drops `vendor/model` prefixes, collapses doubled vendors, title-cases, prefixes the provider brand Cline-style via `providerBrand`, and appends `(API)` / `(OAuth)` for xAI vs Grok OAuth, e.g. "xAI Grok 4.5 (API)"); user-edited names are preserved. `ProviderConfig.displayLabel` prefers a stored `display_name` over the built-in preset title. Providers and models are listed A–Z by display name in Settings; **Add Provider** (presets + custom add) starts collapsed; the **Providers** and **Models** sections are collapsible (expanded by default). Custom Codex picker entries are exported in that order. |
 | `~/.codex/model-catalogs/custom-providers.json` | Codex-compatible picker export (`model_catalog_json`): native ChatGPT/Codex models plus custom entries. **Codex only renders custom entries in its picker when signed in** (free account is enough); signed out it shows a built-in fallback list and labels any active custom model as "Custom". Settings surfaces a sign-in hint (`SettingsStore.customModelsNeedSignIn`) when custom models exist but `auth.json` is absent. |
 | `~/.codexgateway/providers.json` | Provider endpoints + credentials. Optional `auth_kind`: omitted/`api_key` → Bearer key to `{base_url}/chat/completions`; `grok_oauth` → `GrokOAuthClient` (no key stored). Read **live** by the gateway per request (`ModelCatalog.resolveUpstream`), so provider/preset changes take effect immediately — **no Codex restart** (only model changes require one; see `SettingsStore.requiresCodexRestart`). |
 | `~/.grok/auth.json` | Official Grok CLI OAuth session (not owned by CodexGateway). Used when a provider has `auth_kind = grok_oauth`. |
@@ -182,6 +192,7 @@ Install helper: `scripts/codexgateway-install-update.sh` → bundled as `Content
 |------|---------|
 | `CodexGatewayStatusChanged` | Menu bar status (`AppStatus` object) |
 | `CodexGatewayUpdateAvailable` | In-app update available (from `UpdateScheduler` / `UpdateChecker`) |
+| `CodexGatewayDoctorRerunRequested` | Re-run Doctor checks when the existing Doctor window is shown again |
 
 ---
 
@@ -206,13 +217,16 @@ Release assets: `CodexGateway-{tag}.app.zip`, `CodexGateway-{tag}-macOS.dmg` (no
 | Task | Files |
 |------|-------|
 | Open About | `AboutWindowController`, menu **About CodexGateway** |
-| Restore menu-bar mode after windows close | `AppActivationPolicy.restoreAccessoryIfNoVisibleWindows` (About, Settings, UpdatePanel) |
+| Open Doctor | `DoctorWindowController` + `DoctorView`; menu **Doctor…** (⌘D); Settings toolbar **Doctor**. Fixed-size window (close only). `DoctorReport` maps `DoctorInputs` (pure); `DoctorCollector` probes `/health`, Codex config/sign-in, Node ≥ 22.13, Cursor key/sidecar, Grok OAuth |
+| Restore menu-bar mode after windows close | `AppActivationPolicy.restoreAccessoryIfNoVisibleWindows` (About, Settings, Doctor, UpdatePanel) |
 | Add gateway route | `GatewayServer.swift` |
 | Change translation logic | `Translator.swift` |
 | Model catalog / providers | `ModelCatalog.swift`, `ProviderPresets.swift`, `ProviderModelFetcher.swift`, `Paths.swift` |
-| Install provider preset | `PresetInstaller`, Settings window (provider only by default; **xAI Grok (OAuth)** also seeds a suggested model). Cline Pass listing: `ProviderModelFetcher.fetchClinePassRecommended` → `https://api.cline.bot/api/v1/ai/cline/recommended-models` (no API key) |
+| Install provider preset | `PresetInstaller`, Settings window (provider only by default; **xAI Grok (OAuth)** also seeds a suggested model; **Cursor** validates API key → `CursorBridgeKeychain` + enables `CursorBridgeRuntime` on port **18788**). Cline Pass listing: `ProviderModelFetcher.fetchClinePassRecommended` → `https://api.cline.bot/api/v1/ai/cline/recommended-models` (no API key) |
+| Custom provider Spark example | `CustomProviderExample` + Settings **Add Provider** → Add custom provider → “Fill Spark example” (`spark-deepseek` → `http://spark:8001/v1`) |
 | xAI Grok (OAuth) provider | `GrokOAuthSession` (`~/.grok/auth.json`, `grok models` refresh), `GrokOAuthClient` → `cli-chat-proxy.grok.com/v1/responses`; model list via `ProviderModelFetcher.fetchGrokOAuthModels` → `…/models-v2`. `GatewayServer` branches on `ProviderConfig.usesGrokOAuth`. Parallel to **xAI Grok (API)** preset. |
-| Open Settings | `SettingsWindowController`, menu **Settings** (⌘,) |
+| Cursor bridge (managed) | `CursorBridge` / `CursorBridgeRuntime` — Node `@cursor/sdk` sidecar on `http://127.0.0.1:18788/v1` (coexists with GrokBuild on 18787). API key in `~/Library/Application Support/CodexGateway/Secrets/cursor-api-key` (`CursorBridgeKeychain`); `providers.json` keeps `api_key: "local"` + `auth_kind: cursor_bridge`. Settings probes Node ≥ 22.13 (`probeNode`); missing/too-old shows Homebrew Terminal install + nodejs.org. Bundled via `scripts/bundle-cursor-bridge.sh`. |
+| Open Settings | `SettingsWindowController`, menu **Settings** (⌘,). Fixed-size window (close only) |
 | Patch Codex config | `CodexConfig.swift` |
 | Reset/Update gateway config | `SettingsView` (label toggles on `SettingsStore.gatewayConfigInSync`), `SettingsStore.resetGatewayConfig` / `updateGatewayConfig`, `CodexConfig.resetToNative` (Codex-side only; keeps `~/.codexgateway` data) |
 | Restart Codex Desktop | `CodexAppServer.swift`; menu **Restart Codex** (⌘R); Settings shows a **Restart Codex** button (`SettingsStore.needsCodexRestart` / `restartCodex`) after provider/model changes |
@@ -220,6 +234,7 @@ Release assets: `CodexGateway-{tag}.app.zip`, `CodexGateway-{tag}-macOS.dmg` (no
 | Menu bar UI | `StatusBarController.swift` |
 | Open at Login | `OpenAtLogin.swift` (`SMAppService.mainApp`), menu item in `StatusBarController` |
 | Gateway status/port in menu | `StatusBarController` (disabled item), `StatusBarMenuCopy.gatewayStatusTitle`, address from `Paths.gatewayHost`/`gatewayPort` |
+| Cursor bridge status in menu | `StatusBarMenuCopy.cursorBridgeStatusTitle` — shown only when `CursorBridgeRuntime.isEnabled` (Cursor provider installed); hidden otherwise |
 | In-app updates | `UpdateChecker.swift`, `AppUpdater.swift`, `UpdateScheduler.swift`, `UpdatePanel.swift` |
 | App rename / migration | `AppIdentity.swift` (`AppBundleMigration`), `AppUpdater.swift`, `scripts/codexgateway-install-update.sh` (`--rename-from` / `--rename-to`) |
 | Version display | `AppVersion.swift` (bundle Info.plist first, then `VERSION` file) |
@@ -235,13 +250,16 @@ Unit tests in `Tests/CodexGatewayTests/`:
 - `CodexConfigTests` — managed block stripping
 - `ModelCatalogTests` — provider/model API parsing
 - `ProviderPresetsTests` — preset definitions, Grok OAuth install seed
+- `CursorBridgeTests` — managed bridge port 18788, catalog filter, Node TLS, runtime helpers
 - `GrokOAuthSessionTests` — auth.json probe/parse/refresh stubs
 - `GrokOAuthClientTests` — Chat→Responses map, SSE→Chat conversion, 401 retry
-- `StatusBarTests` — accessibility labels
+- `DoctorReportTests` — Doctor check mapping, health, remediation priority
+- `StatusBarTests` — accessibility labels, Doctor menu title, Cursor Bridge menu line
 - `AppActivationPolicyTests` — accessory restore when no other windows remain
 - `OpenAtLoginTests` — login-item status mapping + toggle flow
 - `UpdateCheckerTests` — version compare, notarized filter, asset selection
 - `UpdateSettingsStoreTests` — skip/dismiss behavior
+- `SettingsWindowControllerTests` — Settings/Doctor/About chrome; Providers/Models disclosure defaults
 - `PathsTests` — legacy config migration
 
 Run `make test` before finishing any code change.

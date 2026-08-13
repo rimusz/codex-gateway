@@ -80,6 +80,23 @@ final class ProviderModelFetcherTests: XCTestCase {
         XCTAssertEqual(models.map(\.id), ["claude-opus-4-8", "gpt-5.5"])
     }
 
+    func testParseSkipsAutoAndAutoSmartRoutingAliases() throws {
+        let data = """
+        {
+          "object": "list",
+          "data": [
+            { "id": "default" },
+            { "id": "auto" },
+            { "id": "auto-smart" },
+            { "id": "composer-2.5" }
+          ]
+        }
+        """.data(using: .utf8)!
+
+        let models = try XCTUnwrap(ProviderModelFetcher.parse(data))
+        XCTAssertEqual(models.map(\.id), ["composer-2.5"])
+    }
+
     func testParseClinePassRecommendedSortsAlphabeticallyAndSkipsNonPass() throws {
         let data = """
         {

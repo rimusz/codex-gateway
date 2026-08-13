@@ -1,4 +1,12 @@
+import AppKit
 import SwiftUI
+
+enum SettingsDisclosureDefaults {
+  static let addProviderExpanded = false
+  static let presetsExpanded = false
+  static let providersExpanded = true
+  static let modelsExpanded = true
+}
 
 struct SettingsView: View {
   @ObservedObject var store: SettingsStore
@@ -31,7 +39,13 @@ struct SettingsView: View {
 
   @State private var installingPreset: ProviderPreset?
   @State private var presetAPIKey = ""
-  @State private var isPresetSectionExpanded = false
+  @State private var isAddProviderSectionExpanded = SettingsDisclosureDefaults.addProviderExpanded
+  @State private var isPresetSectionExpanded = SettingsDisclosureDefaults.presetsExpanded
+  @State private var isProvidersSectionExpanded = SettingsDisclosureDefaults.providersExpanded
+  @State private var isModelsSectionExpanded = SettingsDisclosureDefaults.modelsExpanded
+  @State private var isValidatingCursorKey = false
+  @State private var cursorNodeProbe = CursorBridge.NodeRequirement.snapshot(binaryPath: nil, versionDisplay: "")
+  @State private var cursorBridgeStatus = CursorBridgeRuntime.status
 
   var body: some View {
     Form {
@@ -47,8 +61,7 @@ struct SettingsView: View {
       }
 
       signInHintSection
-      presetSection
-      addCustomProviderSection
+      addProviderSection
       providersSection
       modelsSection
       resetSection
@@ -57,9 +70,21 @@ struct SettingsView: View {
     .frame(minWidth: 620, minHeight: 520)
     .navigationTitle("CodexGateway Settings")
     .toolbar { toolbar }
-    .onAppear { store.reload() }
+    .onAppear {
+      store.reload()
+      cursorNodeProbe = CursorBridgeRuntime.probeNode()
+      Task {
+        cursorBridgeStatus = await CursorBridgeRuntime.reconcile()
+      }
+    }
+    .onReceive(NotificationCenter.default.publisher(for: .codexGatewayCursorBridgeRuntimeStatusDidChange)) { _ in
+      cursorBridgeStatus = CursorBridgeRuntime.status
+    }
     .safeAreaInset(edge: .bottom) { statusBar }
-    .sheet(isPresented: $showingProviderEditor) { providerEditorSheet }
+    .sheet(isPresented: $showingProviderEditor) {
+      providerEditorSheet
+        .id(editingProvider?.name ?? providerName)
+    }
     .sheet(isPresented: $showingModelEditor) { modelEditorSheet }
     .sheet(item: $installingPreset) { preset in presetKeySheet(preset) }
     .alert("Error", isPresented: errorBinding) {
@@ -117,6 +142,14 @@ struct SettingsView: View {
 
   @ToolbarContentBuilder
   private var toolbar: some ToolbarContent {
+    ToolbarItem {
+      Button {
+        DoctorWindowController.shared.show()
+      } label: {
+        Label("Doctor", systemImage: "stethoscope")
+      }
+      .help("Check gateway, Codex config, Node.js, and Cursor / Grok setup")
+    }
     ToolbarItem {
       Button {
         store.reload()
@@ -188,44 +221,52 @@ struct SettingsView: View {
     }
   }
 
-  // MARK: - Preset section
+  // MARK: - Add provider
 
-  private var presetSection: some View {
+  private var addProviderSection: some View {
     Section {
-      DisclosureGroup(isExpanded: $isPresetSectionExpanded) {
-        LazyVGrid(columns: [GridItem(.adaptive(minimum: 180), spacing: 12)], spacing: 12) {
-          ForEach(ProviderPreset.featuredMenuOrder) { preset in
-            presetTile(preset)
-          }
+      collapsibleHeader(
+        title: "Add Provider",
+        systemImage: "plus.circle",
+        isExpanded: $isAddProviderSectionExpanded
+      )
+      if isAddProviderSectionExpanded {
+        presetPicker
+        Text("Most presets add only the provider endpoint and key — add models from the provider row. Cursor runs a local Node bridge (port \(CursorBridgeRuntime.managedPort)). xAI Grok (OAuth) seeds a suggested model and uses your Grok CLI login.")
+          .font(.caption)
+          .foregroundStyle(.secondary)
+          .fixedSize(horizontal: false, vertical: true)
+        Button {
+          beginAddingProvider()
+        } label: {
+          Label("Add custom provider", systemImage: "plus")
         }
-        .padding(.top, 10)
-      } label: {
-        HStack(spacing: 8) {
-          Image(systemName: "puzzlepiece.extension")
-            .foregroundStyle(.secondary)
-          Text("Install a provider preset")
-            .font(.headline)
-          Spacer()
-          Text("\(ProviderPreset.featuredMenuOrder.count)")
-            .font(.caption)
-            .foregroundStyle(.secondary)
-        }
-        .contentShape(Rectangle())
       }
-      .padding(.vertical, 4)
-    } footer: {
-      Text("Most presets add only the provider endpoint and key — add models from the provider row. xAI Grok (OAuth) also seeds a suggested model and uses your Grok CLI login instead of an API key.")
     }
   }
 
-  private var addCustomProviderSection: some View {
-    Section {
-      Button {
-        beginAddingProvider()
-      } label: {
-        Label("Add custom provider", systemImage: "plus")
+  private var presetPicker: some View {
+    DisclosureGroup(isExpanded: $isPresetSectionExpanded) {
+      LazyVGrid(columns: [GridItem(.adaptive(minimum: 180), spacing: 12)], spacing: 12) {
+        ForEach(ProviderPreset.featuredMenuOrder) { preset in
+          presetTile(preset)
+        }
       }
+      .padding(.top, 10)
+    } label: {
+      HStack(spacing: 8) {
+        Image(systemName: "puzzlepiece.extension")
+          .foregroundStyle(.secondary)
+        Text("Install a provider preset")
+          .font(.headline)
+        Spacer()
+        Text("\(ProviderPreset.featuredMenuOrder.count)")
+          .font(.caption)
+          .foregroundStyle(.secondary)
+      }
+      .contentShape(Rectangle())
     }
+    .padding(.vertical, 4)
   }
 
   private func presetTile(_ preset: ProviderPreset) -> some View {
@@ -269,19 +310,30 @@ struct SettingsView: View {
   // MARK: - Providers section
 
   private var providersSection: some View {
-    Section("Providers") {
-      if store.usableProviders.isEmpty {
-        Text("No providers yet. Install a preset or add a custom provider above.")
-          .foregroundStyle(.secondary)
-      } else {
-        ForEach(store.usableProviders) { provider in
-          providerRow(provider)
+    Section {
+      collapsibleHeader(
+        title: "Providers",
+        systemImage: "server.rack",
+        count: store.usableProviders.count,
+        isExpanded: $isProvidersSectionExpanded
+      )
+      if isProvidersSectionExpanded {
+        if store.usableProviders.isEmpty {
+          Text("No providers yet. Install a preset or add a custom provider above.")
+            .foregroundStyle(.secondary)
+        } else {
+          ForEach(store.usableProviders) { provider in
+            providerRow(provider)
+          }
         }
       }
     }
   }
 
   private func presetFetchCaption(_ preset: ProviderPreset) -> String {
+    if preset.isManagedCursorBridge {
+      return "Local Cursor bridge · port \(CursorBridgeRuntime.managedPort) · Cursor API key"
+    }
     if preset.authKind == .grokOAuth {
       let status = GrokOAuthSession.status()
       let auth = status.configured ? "Connected" : "Not signed in"
@@ -354,6 +406,11 @@ struct SettingsView: View {
           .foregroundStyle(.tertiary)
           .lineLimit(1)
           .truncationMode(.middle)
+        if provider.usesCursorBridge {
+          Text(cursorNodeProbe.detail)
+            .font(.caption2)
+            .foregroundStyle(cursorNodeProbe.meetsMinimum ? AnyShapeStyle(.secondary) : AnyShapeStyle(Color.orange))
+        }
       if fetchErrorProviderID == provider.name, let message = fetchErrorMessage {
         Text(message)
           .font(.caption2)
@@ -442,6 +499,18 @@ struct SettingsView: View {
           .foregroundStyle(.orange)
           .help(status.setupHint ?? "Run `grok login` in Terminal")
       }
+    } else if provider.usesCursorBridge {
+      if CursorBridgeKeychain.hasAPIKey() {
+        Label(cursorBridgeStatus.isRunning ? "Bridge on" : "Key saved", systemImage: "key.fill")
+          .font(.caption2)
+          .foregroundStyle(cursorBridgeStatus.isRunning ? .green : .secondary)
+          .help(cursorBridgeStatus.summary)
+      } else {
+        Label("Add key", systemImage: "key.slash")
+          .font(.caption2)
+          .foregroundStyle(.orange)
+          .help("Paste a Cursor API key from cursor.com/dashboard → Integrations")
+      }
     } else if provider.api_key.isEmpty {
       Label("No key", systemImage: "key.slash")
         .font(.caption2)
@@ -462,19 +531,63 @@ struct SettingsView: View {
 
   private var modelsSection: some View {
     Section {
-      if store.models.isEmpty {
-        Text("No catalog models yet.")
-          .foregroundStyle(.secondary)
-      } else {
-        ForEach(store.models) { model in
-          modelRow(model)
+      collapsibleHeader(
+        title: "Models",
+        systemImage: "cpu",
+        count: store.models.count,
+        isExpanded: $isModelsSectionExpanded
+      )
+      if isModelsSectionExpanded {
+        if store.models.isEmpty {
+          Text("No catalog models yet.")
+            .foregroundStyle(.secondary)
+        } else {
+          ForEach(store.models) { model in
+            modelRow(model)
+          }
         }
       }
-    } header: {
-      Text("Models")
     } footer: {
       Text("Add models from a provider row — Add model fetches the list automatically when needed.")
     }
+  }
+
+  private func collapsibleHeader(
+    title: String,
+    systemImage: String,
+    count: Int? = nil,
+    isExpanded: Binding<Bool>
+  ) -> some View {
+    Button {
+      withAnimation(.easeInOut(duration: 0.15)) {
+        isExpanded.wrappedValue.toggle()
+      }
+    } label: {
+      HStack(spacing: 8) {
+        Image(systemName: "chevron.right")
+          .font(.caption.weight(.semibold))
+          .foregroundStyle(.secondary)
+          .rotationEffect(.degrees(isExpanded.wrappedValue ? 90 : 0))
+        Image(systemName: systemImage)
+          .foregroundStyle(.secondary)
+        Text(title)
+          .font(.headline)
+          .foregroundStyle(.primary)
+        Spacer()
+        if let count {
+          Text("\(count)")
+            .font(.caption)
+            .foregroundStyle(.secondary)
+        }
+      }
+      .contentShape(Rectangle())
+      .padding(.vertical, 4)
+    }
+    .buttonStyle(.plain)
+    .accessibilityLabel(title)
+    .accessibilityValue(isExpanded.wrappedValue ? "Expanded" : "Collapsed")
+    .accessibilityHint("Shows or hides the \(title.lowercased()) list")
+    .accessibilityAddTraits(.isButton)
   }
 
   @ViewBuilder
@@ -528,16 +641,21 @@ struct SettingsView: View {
 
   private var providerEditorSheet: some View {
     let isGrokOAuth = editingProvider?.usesGrokOAuth == true
+      || providerName == ProviderPreset.grokOAuth.providerID
+    let isCursor = isCursorProviderEditor
+    let isCustomNew = editingProvider == nil && !isCursor && !isGrokOAuth
     return VStack(alignment: .leading, spacing: 0) {
       sheetHeader(
         icon: "server.rack",
         title: editingProvider == nil ? "Add provider" : "Edit provider",
-        subtitle: isGrokOAuth
-          ? "Uses the official Grok CLI session (~/.grok/auth.json)."
-          : "OpenAI-compatible endpoint and API key."
+        subtitle: providerEditorSubtitle(isGrokOAuth: isGrokOAuth, isCursor: isCursor)
       )
 
       Form {
+        if isCustomNew {
+          sparkExampleSection
+        }
+
         TextField("Name (id)", text: $providerName)
           .disabled(editingProvider != nil)
         Text("Lowercase identifier, e.g. \"minimax\". Used to link models to this provider.")
@@ -550,7 +668,14 @@ struct SettingsView: View {
           .foregroundStyle(.secondary)
 
         TextField("Base URL", text: $providerBaseURL)
-        Text(isGrokOAuth ? "CLI chat proxy base, e.g. https://cli-chat-proxy.grok.com/v1" : "e.g. https://api.minimax.io/v1")
+          .disabled(isCursor)
+        Text(
+          isGrokOAuth
+            ? "CLI chat proxy base, e.g. https://cli-chat-proxy.grok.com/v1"
+            : (isCursor
+              ? "Managed local bridge (port \(CursorBridgeRuntime.managedPort))."
+              : "e.g. https://api.minimax.io/v1")
+        )
           .font(.caption)
           .foregroundStyle(.secondary)
 
@@ -561,6 +686,12 @@ struct SettingsView: View {
           Text("No API key is stored in providers.json for this provider.")
             .font(.caption)
             .foregroundStyle(.secondary)
+        } else if isCursor {
+          cursorCredentialFields(
+            keyHint: CursorBridgeKeychain.hasAPIKey()
+              ? "Cursor API key (leave blank to keep current)"
+              : "Cursor API key (key_…)"
+          )
         } else {
           SecureField(
             editingProvider?.api_key.isEmpty == false ? "API key (leave blank to keep current)" : "API key",
@@ -570,9 +701,131 @@ struct SettingsView: View {
       }
       .formStyle(.grouped)
 
-      sheetButtons(save: saveProvider) { showingProviderEditor = false }
+      sheetButtons(save: {
+        if isCursor {
+          saveCursorProviderEdits()
+        } else {
+          saveProvider()
+        }
+      }) { showingProviderEditor = false }
     }
     .frame(width: 460)
+    .id(isCursor ? "cursor-editor" : (editingProvider?.name ?? "new-provider"))
+    .onAppear {
+      cursorNodeProbe = CursorBridgeRuntime.probeNode()
+      cursorBridgeStatus = CursorBridgeRuntime.status
+    }
+  }
+
+  private var isCursorProviderEditor: Bool {
+    editingProvider?.usesCursorBridge == true
+      || ProviderPreset.matching(providerID: providerName)?.isManagedCursorBridge == true
+      || providerName == ProviderPreset.cursor.providerID
+  }
+
+  private func providerEditorSubtitle(isGrokOAuth: Bool, isCursor: Bool) -> String {
+    if isGrokOAuth {
+      return "Uses the official Grok CLI session (~/.grok/auth.json)."
+    }
+    if isCursor {
+      return "Managed Cursor OpenAI bridge — key stored under Application Support."
+    }
+    return "OpenAI-compatible endpoint and API key."
+  }
+
+  @ViewBuilder
+  private var sparkExampleSection: some View {
+    Section {
+      VStack(alignment: .leading, spacing: 8) {
+        Text(CustomProviderExample.sparkExampleSummary)
+          .font(.caption.weight(.semibold))
+        Text(CustomProviderExample.dummyKeyHelp)
+          .font(.caption)
+          .foregroundStyle(.secondary)
+          .fixedSize(horizontal: false, vertical: true)
+        Text(
+          "\(CustomProviderExample.sparkProviderID)  ·  \(CustomProviderExample.sparkDisplayName)  ·  \(CustomProviderExample.sparkBaseURL)"
+        )
+        .font(.system(.caption2, design: .monospaced))
+        .foregroundStyle(.secondary)
+        .textSelection(.enabled)
+        Button("Fill Spark example") {
+          applySparkCustomProviderExample()
+        }
+        .controlSize(.small)
+      }
+      .padding(.vertical, 2)
+    }
+  }
+
+  @ViewBuilder
+  private var cursorNodeStatusSection: some View {
+    if !cursorNodeProbe.meetsMinimum {
+      cursorNodeInstallBanner
+    }
+  }
+
+  private var cursorNodeInstallBanner: some View {
+    HStack(alignment: .top, spacing: 10) {
+      Image(systemName: "exclamationmark.triangle.fill")
+        .foregroundStyle(.orange)
+      VStack(alignment: .leading, spacing: 6) {
+        Text(cursorNodeProbe.isFound ? "Node.js is too old" : "Node.js is required")
+          .font(.caption.weight(.semibold))
+        Text(cursorNodeProbe.detail)
+          .font(.caption2)
+          .foregroundStyle(.secondary)
+          .fixedSize(horizontal: false, vertical: true)
+        HStack(spacing: 10) {
+          Button("Install with Homebrew…") { openNodeBrewInstallInTerminal() }
+            .controlSize(.small)
+          Button("nodejs.org…") {
+            NSWorkspace.shared.open(CursorBridge.NodeRequirement.homepageURL)
+          }
+          .buttonStyle(.link)
+          .controlSize(.small)
+          Button("Re-check") {
+            cursorNodeProbe = CursorBridgeRuntime.probeNode()
+          }
+          .controlSize(.small)
+        }
+      }
+      Spacer(minLength: 0)
+    }
+    .padding(10)
+    .background(RoundedRectangle(cornerRadius: 8).fill(Color.orange.opacity(0.10)))
+  }
+
+  private func openNodeBrewInstallInTerminal() {
+    let script = CursorBridge.NodeRequirement.brewInstallTerminalScript()
+    if let apple = NSAppleScript(source: script) {
+      var err: NSDictionary?
+      apple.executeAndReturnError(&err)
+    }
+  }
+
+  @ViewBuilder
+  private func cursorCredentialFields(keyHint: String) -> some View {
+    cursorNodeStatusSection
+    if cursorNodeProbe.meetsMinimum {
+      Text(cursorNodeProbe.detail)
+        .font(.caption2)
+        .foregroundStyle(.secondary)
+    }
+    SecureField(keyHint, text: $providerAPIKey)
+    Text("Paste from cursor.com/dashboard → Integrations. Stored only for the local bridge (not in providers.json).")
+      .font(.caption)
+      .foregroundStyle(.secondary)
+    Text("Bridge: \(cursorBridgeStatus.summary)")
+      .font(.caption2)
+      .foregroundStyle(.secondary)
+    if isValidatingCursorKey {
+      HStack(spacing: 8) {
+        ProgressView().controlSize(.small)
+        Text("Validating Cursor API key…")
+          .foregroundStyle(.secondary)
+      }
+    }
   }
 
   private var modelEditorSheet: some View {
@@ -724,6 +977,7 @@ struct SettingsView: View {
   // MARK: - Actions
 
   private func installPreset(_ preset: ProviderPreset) {
+    isAddProviderSectionExpanded = true
     if preset.requiresAPIKeyPrompt || preset.authKind == .grokOAuth {
       presetAPIKey = ""
       installingPreset = preset
@@ -735,6 +989,7 @@ struct SettingsView: View {
   private func performInstall(_ preset: ProviderPreset, apiKey: String) {
     do {
       try store.installPreset(preset, apiKey: apiKey)
+      isProvidersSectionExpanded = true
     } catch {
       store.errorMessage = error.localizedDescription
     }
@@ -756,6 +1011,11 @@ struct SettingsView: View {
           Text("Install @xai-official/grok and run `grok login` (or `grok login --oauth`). Credentials stay in ~/.grok/auth.json.")
             .font(.caption)
             .foregroundStyle(.secondary)
+        } else if preset.isManagedCursorBridge {
+          cursorCredentialFields(keyHint: "Cursor API key (key_…)")
+          Text("Inference-only bridge: Codex keeps tool calling; Cursor returns assistant text via the local sidecar.")
+            .font(.caption)
+            .foregroundStyle(.secondary)
         } else {
           SecureField("API key", text: $presetAPIKey)
           Text("Your key is stored locally in ~/.codexgateway/providers.json.")
@@ -767,9 +1027,17 @@ struct SettingsView: View {
 
       HStack {
         Spacer()
-        Button("Cancel", role: .cancel) { installingPreset = nil }
-          .keyboardShortcut(.cancelAction)
-        Button("Install") {
+        Button("Cancel", role: .cancel) {
+          installingPreset = nil
+          isValidatingCursorKey = false
+        }
+        .keyboardShortcut(.cancelAction)
+        .disabled(isValidatingCursorKey)
+        Button(isValidatingCursorKey ? "Validating…" : "Install") {
+          if preset.isManagedCursorBridge {
+            performCursorInstall()
+            return
+          }
           installingPreset = nil
           if preset.authKind == .grokOAuth {
             performInstall(preset, apiKey: "")
@@ -784,19 +1052,39 @@ struct SettingsView: View {
         }
         .keyboardShortcut(.defaultAction)
         .buttonStyle(.borderedProminent)
+        .disabled(isValidatingCursorKey || (preset.isManagedCursorBridge && !cursorNodeProbe.meetsMinimum))
       }
       .padding(20)
     }
     .frame(width: 460)
+    .onAppear {
+      if preset.isManagedCursorBridge {
+        presetAPIKey = ""
+        providerAPIKey = ""
+        cursorNodeProbe = CursorBridgeRuntime.probeNode()
+        cursorBridgeStatus = CursorBridgeRuntime.status
+      }
+    }
   }
 
   private func beginAddingProvider() {
+    isAddProviderSectionExpanded = true
+    isProvidersSectionExpanded = true
     editingProvider = nil
     providerName = ""
     providerDisplayName = ""
     providerBaseURL = ""
     providerAPIKey = ""
-    showingProviderEditor = true
+    DispatchQueue.main.async {
+      showingProviderEditor = true
+    }
+  }
+
+  private func applySparkCustomProviderExample() {
+    providerName = CustomProviderExample.sparkProviderID
+    providerDisplayName = CustomProviderExample.sparkDisplayName
+    providerBaseURL = CustomProviderExample.sparkBaseURL
+    providerAPIKey = CustomProviderExample.sparkAPIKey
   }
 
   private func beginEditingProvider(_ provider: ProviderConfig) {
@@ -805,7 +1093,9 @@ struct SettingsView: View {
     providerDisplayName = provider.display_name ?? provider.displayLabel
     providerBaseURL = provider.base_url
     providerAPIKey = ""
-    showingProviderEditor = true
+    DispatchQueue.main.async {
+      showingProviderEditor = true
+    }
   }
 
   private func saveProvider() {
@@ -816,21 +1106,103 @@ struct SettingsView: View {
         baseURL: providerBaseURL,
         apiKey: providerAPIKey
       )
+      isProvidersSectionExpanded = true
       showingProviderEditor = false
     } catch {
       store.errorMessage = error.localizedDescription
     }
   }
 
+  private func saveCursorProviderEdits() {
+    let key = providerAPIKey.trimmingCharacters(in: .whitespacesAndNewlines)
+    if key.isEmpty {
+      // Keep existing secret; still allow display-name edits via saveProvider with blank key.
+      do {
+        try store.saveProvider(
+          name: providerName,
+          displayName: providerDisplayName,
+          baseURL: ProviderPreset.cursor.baseURL,
+          apiKey: ""
+        )
+        isProvidersSectionExpanded = true
+        showingProviderEditor = false
+      } catch {
+        store.errorMessage = error.localizedDescription
+      }
+      return
+    }
+    isValidatingCursorKey = true
+    Task {
+      let validation = await CursorBridgeRuntime.validateAPIKey(key)
+      await MainActor.run {
+        isValidatingCursorKey = false
+        guard validation.isValid else {
+          store.errorMessage = validation.message
+          return
+        }
+        do {
+          try store.updateCursorAPIKey(key)
+          try store.saveProvider(
+            name: providerName,
+            displayName: providerDisplayName,
+            baseURL: ProviderPreset.cursor.baseURL,
+            apiKey: ""
+          )
+          isProvidersSectionExpanded = true
+          providerAPIKey = ""
+          showingProviderEditor = false
+          cursorBridgeStatus = CursorBridgeRuntime.status
+        } catch {
+          store.errorMessage = error.localizedDescription
+        }
+      }
+    }
+  }
+
+  private func performCursorInstall() {
+    let key = providerAPIKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+      ? presetAPIKey.trimmingCharacters(in: .whitespacesAndNewlines)
+      : providerAPIKey.trimmingCharacters(in: .whitespacesAndNewlines)
+    guard !key.isEmpty else {
+      store.errorMessage = CursorBridge.APIKeyValidation.missing.message
+      return
+    }
+    isValidatingCursorKey = true
+    Task {
+      let validation = await CursorBridgeRuntime.validateAPIKey(key)
+      await MainActor.run {
+        isValidatingCursorKey = false
+        guard validation.isValid else {
+          store.errorMessage = validation.message
+          return
+        }
+        do {
+          try store.installCursorPreset(apiKey: key)
+          isProvidersSectionExpanded = true
+          installingPreset = nil
+          presetAPIKey = ""
+          providerAPIKey = ""
+          cursorBridgeStatus = CursorBridgeRuntime.status
+        } catch {
+          store.errorMessage = error.localizedDescription
+        }
+      }
+    }
+  }
+
   private func deleteProvider(_ provider: ProviderConfig) {
     do {
       try store.deleteProvider(name: provider.name)
+      if provider.usesCursorBridge {
+        cursorBridgeStatus = CursorBridgeRuntime.status
+      }
     } catch {
       store.errorMessage = error.localizedDescription
     }
   }
 
   private func beginAddingModel(for provider: ProviderConfig) {
+    isModelsSectionExpanded = true
     let choices = modelCatalogChoices(for: provider)
     if !choices.isEmpty {
       openModelEditorForAdd(provider: provider, options: choices)
@@ -933,6 +1305,7 @@ struct SettingsView: View {
         vision_bridge_enabled: modelSupportsImageInput ? true : nil,
         context_window: contextWindow
       ))
+      isModelsSectionExpanded = true
       showingModelEditor = false
     } catch {
       store.errorMessage = error.localizedDescription
@@ -953,12 +1326,16 @@ struct SettingsView: View {
   private func catalogModels(from fetched: [FetchedModel], for provider: ProviderConfig) -> [CatalogModel] {
     let preset = ProviderPreset.matching(providerID: provider.name)
     let liveCline = preset?.supportsLiveCatalogRefresh == true
-    return fetched.map { fetchedModel in
+    let isCursor = provider.usesCursorBridge || preset?.isManagedCursorBridge == true
+    let models = isCursor ? CursorBridge.filterCatalog(fetched) : fetched
+    return models.map { fetchedModel in
       let displayName: String
       if liveCline {
         let label = fetchedModel.ownedBy?.trimmingCharacters(in: .whitespacesAndNewlines)
         let base = (label?.isEmpty == false ? label! : ClinePassCatalog.displayLabel(for: fetchedModel.id))
         displayName = ClinePassCatalog.displayName(for: base)
+      } else if isCursor {
+        displayName = CursorBridge.displayName(for: fetchedModel.id)
       } else {
         // Includes xAI API / Grok OAuth `(API)` / `(OAuth)` suffixes via prettyDisplayName.
         displayName = ModelCatalog.prettyDisplayName(from: fetchedModel.id, providerID: provider.name)
@@ -995,7 +1372,14 @@ struct SettingsView: View {
     fetchErrorMessage = nil
     Task {
       do {
-        let models = try await ProviderModelFetcher.fetch(for: provider)
+        if provider.usesCursorBridge {
+          _ = await CursorBridgeRuntime.startIfNeeded()
+          await MainActor.run { cursorBridgeStatus = CursorBridgeRuntime.status }
+        }
+        var models = try await ProviderModelFetcher.fetch(for: provider)
+        if provider.usesCursorBridge {
+          models = CursorBridge.filterCatalog(models)
+        }
         await MainActor.run {
           store.saveFetchedModels(models, for: provider.name)
           fetchingProviderID = nil

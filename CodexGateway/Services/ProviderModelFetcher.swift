@@ -43,7 +43,7 @@ enum ProviderModelFetcher {
     guard let object = try? JSONSerialization.jsonObject(with: data) else { return nil }
     let rawList: [Any]
     // IDs to drop regardless of provider (e.g. Cursor's "default"/Auto meta-selector).
-    let skipIDs: Set<String> = ["default"]
+    let skipIDs: Set<String> = ["default", "auto", "auto-smart"]
     if let dict = object as? [String: Any], let list = dict["data"] as? [Any] {
       rawList = list
     } else if let dict = object as? [String: Any], let list = dict["items"] as? [Any] {

@@ -129,6 +129,10 @@ final class GatewayServer {
       return
     }
 
+    if provider.usesCursorBridge {
+      ensureCursorBridgeReady()
+    }
+
     let url = URL(string: "\(provider.base_url.trimmingCharacters(in: CharacterSet(charactersIn: "/")))/chat/completions")!
 
     var urlRequest = URLRequest(url: url)
@@ -379,6 +383,10 @@ final class GatewayServer {
         return
       }
 
+      if resolved.provider.usesCursorBridge {
+        ensureCursorBridgeReady()
+      }
+
       var urlRequest = URLRequest(url: URL(string: "\(resolved.provider.base_url.trimmingCharacters(in: CharacterSet(charactersIn: "/")))/chat/completions")!)
       urlRequest.httpMethod = "POST"
       urlRequest.setValue("application/json", forHTTPHeaderField: "Content-Type")
@@ -395,6 +403,17 @@ final class GatewayServer {
       return
     }
     passthroughResponses(request: request, body: body, response: response)
+  }
+
+  /// Best-effort start of the managed Cursor sidecar before proxying (bounded wait).
+  private func ensureCursorBridgeReady() {
+    if CursorBridgeRuntime.isRunning { return }
+    let semaphore = DispatchSemaphore(value: 0)
+    Task {
+      _ = await CursorBridgeRuntime.startIfNeeded()
+      semaphore.signal()
+    }
+    _ = semaphore.wait(timeout: .now() + 15)
   }
 
   private func parseJSON(_ data: Data) -> [String: Any]? {
