@@ -172,6 +172,22 @@ final class ProviderPresetsTests: XCTestCase {
         XCTAssertEqual(savedModels.first?.model, "grok-4.5")
     }
 
+    func testGrokOAuthInstallCanSkipSeedingModels() throws {
+        var savedModels: [CatalogModel] = []
+
+        let result = try PresetInstaller.install(
+            .grokOAuth,
+            seedModels: false,
+            upsertProvider: { _ in },
+            upsertModel: { savedModels.append($0) },
+            patchConfig: {}
+        )
+
+        XCTAssertEqual(result.provider, "grok-oauth")
+        XCTAssertEqual(result.models, [])
+        XCTAssertTrue(savedModels.isEmpty)
+    }
+
     func testProviderConfigUsesGrokOAuthFlag() {
         let oauth = ProviderConfig(
             name: "grok-oauth",

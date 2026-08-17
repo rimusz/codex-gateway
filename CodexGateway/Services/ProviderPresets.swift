@@ -296,13 +296,14 @@ enum PresetInstaller {
   static func install(
     _ preset: ProviderPreset,
     apiKey: String = "",
+    seedModels: Bool = true,
     upsertProvider: (ProviderConfig) throws -> Void = { try ModelCatalog.shared.upsertProvider($0) },
     upsertModel: (CatalogModel) throws -> Void = { try ModelCatalog.shared.upsertModel($0) },
     patchConfig: () -> Void = { CodexConfig.patchCodexConfig() }
   ) throws -> (provider: String, models: [String]) {
     try upsertProvider(preset.providerConfig(apiKey: apiKey))
     var seeded: [String] = []
-    if preset.seedsSuggestedModelOnInstall {
+    if seedModels, preset.seedsSuggestedModelOnInstall {
       for model in preset.catalogModels() {
         try upsertModel(model)
         seeded.append(model.slug)

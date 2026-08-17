@@ -100,9 +100,15 @@ codex-gateway/                    # GitHub repo (`rimusz/codex-gateway`; legacy 
 │   │   ├── CodexAppServer.swift  # Codex Desktop restart (re-patches config first)
 │   │   ├── APIClient.swift       # Health polling
 │   │   ├── OpenAtLogin.swift     # SMAppService login item toggle
+│   │   ├── SetupPresentation.swift # First-run show/hide (empty catalog)
+│   │   ├── SetupSession.swift    # In-memory skip-this-launch flag
+│   │   ├── SetupFlow.swift       # Pure setup step machine
 │   │   ├── Paths.swift
 │   │   └── GatewayLog.swift
 │   ├── UI/
+│   │   ├── SetupWindowController.swift # First-run setup (empty catalog)
+│   │   ├── SetupView.swift
+│   │   ├── SetupStore.swift
 │   │   ├── AboutWindowController.swift # About panel (matches UpdatePanel chrome)
 │   │   ├── DoctorWindowController.swift
 │   │   ├── DoctorView.swift
@@ -128,7 +134,7 @@ codex-gateway/                    # GitHub repo (`rimusz/codex-gateway`; legacy 
 ## App lifecycle
 
 1. `main.swift` — `NSApplication` with `.accessory` (menu bar only, no Dock).
-2. `AppDelegate.applicationDidFinishLaunching` — `GatewayServer.shared.start()`, then `StatusBarController` + health timer.
+2. `AppDelegate.applicationDidFinishLaunching` — `GatewayServer.shared.start()`, then `StatusBarController` + health timer. If the catalog is empty (no installed providers and no models) and the user has not skipped this launch, `SetupWindowController` opens the first-run setup window. DEBUG `--setup` / menu **Show Setup…** force it. Rename-quit (`AppBundleMigration`) suppresses setup.
 3. `AppDelegate.applicationWillTerminate` — stop gateway.
 
 ---
@@ -218,7 +224,8 @@ Release assets: `CodexGateway-{tag}.app.zip`, `CodexGateway-{tag}-macOS.dmg` (no
 |------|-------|
 | Open About | `AboutWindowController`, menu **About CodexGateway** |
 | Open Doctor | `DoctorWindowController` + `DoctorView`; menu **Doctor…** (⌘D); Settings toolbar **Doctor**. Fixed-size window (close only). `DoctorReport` maps `DoctorInputs` (pure); `DoctorCollector` probes `/health`, Codex config/sign-in, Node ≥ 22.13, Cursor key/sidecar, Grok OAuth |
-| Restore menu-bar mode after windows close | `AppActivationPolicy.restoreAccessoryIfNoVisibleWindows` (About, Settings, Doctor, UpdatePanel) |
+| Restore menu-bar mode after windows close | `AppActivationPolicy.restoreAccessoryIfNoVisibleWindows` (About, Settings, Doctor, UpdatePanel, Setup) |
+| First-run setup | `SetupWindowController` + `SetupView` + `SetupStore` + `SetupFlow` / `SetupPresentation` / `SetupSession`. Shows when the catalog is empty; Skip is this launch only. Connect installs without seeding/patching; Close/Skip cancels work and removes a new provider or restores pre-existing DEBUG-forced data. Empty fetches allow manual models. Finish transactionally replaces rows, applies a throwing catalog/config write, rolls back on failure, then asks **Restart Codex?**. `--setup` is DEBUG-only; migrating bundles use `AppBundleMigration.isLegacyBundleMigrationPending`. |
 | Add gateway route | `GatewayServer.swift` |
 | Change translation logic | `Translator.swift` |
 | Model catalog / providers | `ModelCatalog.swift`, `ProviderPresets.swift`, `ProviderModelFetcher.swift`, `Paths.swift` |
@@ -228,7 +235,7 @@ Release assets: `CodexGateway-{tag}.app.zip`, `CodexGateway-{tag}-macOS.dmg` (no
 | Cursor bridge (managed) | `CursorBridge` / `CursorBridgeRuntime` — Node `@cursor/sdk` sidecar on `http://127.0.0.1:18788/v1` (coexists with GrokBuild on 18787). API key in `~/Library/Application Support/CodexGateway/Secrets/cursor-api-key` (`CursorBridgeKeychain`); `providers.json` keeps `api_key: "local"` + `auth_kind: cursor_bridge`. Settings/Doctor probe Node ≥ 22.13 off the main actor (`probeNodeAsync`); missing/too-old shows Homebrew Terminal install + nodejs.org. Concurrent `startIfNeeded()` joins an in-flight start. Gateway Cursor proxy hops off `LoopbackHTTPServer`'s serial queue while the sidecar starts. `stop()` only SIGTERMs listeners whose command line contains `cursor-openai-bridge.mjs`. Bundled via `scripts/bundle-cursor-bridge.sh` (`npm ci`). |
 | Open Settings | `SettingsWindowController`, menu **Settings** (⌘,). Fixed-size window (close only) |
 | Patch Codex config | `CodexConfig.swift` |
-| Reset/Update gateway config | `SettingsView` (label toggles on `SettingsStore.gatewayConfigInSync`), `SettingsStore.resetGatewayConfig` / `updateGatewayConfig`, `CodexConfig.resetToNative` (Codex-side only; keeps `~/.codexgateway` data) |
+| Reset/Update gateway config | `SettingsView` (label toggles on `SettingsStore.gatewayConfigInSync`), `SettingsStore.resetGatewayConfig` / `applyGatewayConfig` / `updateGatewayConfig` (apply + restart), `CodexConfig.resetToNative` (Codex-side only; keeps `~/.codexgateway` data). `CodexConfig.ensureConfigFile()` creates a missing `config.toml` on explicit apply |
 | Restart Codex Desktop | `CodexAppServer.swift`; menu **Restart Codex** (⌘R); Settings shows a **Restart Codex** button (`SettingsStore.needsCodexRestart` / `restartCodex`) after provider/model changes |
 | Document third-party CLI use (Zero) | `README.md` → Using CodexGateway with Zero; gateway base URL `Paths.gatewayHost`/`gatewayPort` |
 | Menu bar UI | `StatusBarController.swift` |
@@ -260,6 +267,7 @@ Unit tests in `Tests/CodexGatewayTests/`:
 - `UpdateCheckerTests` — version compare, notarized filter, asset selection
 - `UpdateSettingsStoreTests` — skip/dismiss behavior
 - `SettingsWindowControllerTests` — Settings/Doctor/About chrome; Providers/Models disclosure defaults
+- `SetupPresentationTests` / `SetupFlowTests` / `SetupWindowControllerTests` — first-run show/hide, step machine, setup chrome + `shouldPresent`
 - `PathsTests` — legacy config migration
 
 Run `make test` before finishing any code change.

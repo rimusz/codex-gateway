@@ -87,7 +87,13 @@ final class SettingsStore: ObservableObject {
     }
   }
 
-  func saveProvider(name: String, displayName: String, baseURL: String, apiKey: String) throws {
+  func saveProvider(
+    name: String,
+    displayName: String,
+    baseURL: String,
+    apiKey: String,
+    patchConfig: Bool = true
+  ) throws {
     let trimmedName = name.trimmingCharacters(in: .whitespacesAndNewlines)
     let trimmedDisplayName = displayName.trimmingCharacters(in: .whitespacesAndNewlines)
     let trimmedURL = baseURL.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -106,7 +112,9 @@ final class SettingsStore: ObservableObject {
         auth_kind: existing?.auth_kind
       )
     )
-    CodexConfig.patchCodexConfig()
+    if patchConfig {
+      CodexConfig.patchCodexConfig()
+    }
     reload()
     announce("Provider saved — takes effect immediately, no Codex restart needed.", change: .provider)
   }
@@ -189,8 +197,18 @@ final class SettingsStore: ObservableObject {
     announce(SettingsStore.modelsChangedMessage, change: .model)
   }
 
-  func installPreset(_ preset: ProviderPreset, apiKey: String) throws {
-    let result = try PresetInstaller.install(preset, apiKey: apiKey)
+  func installPreset(
+    _ preset: ProviderPreset,
+    apiKey: String,
+    seedModels: Bool = true,
+    patchConfig: Bool = true
+  ) throws {
+    let result = try PresetInstaller.install(
+      preset,
+      apiKey: apiKey,
+      seedModels: seedModels,
+      patchConfig: patchConfig ? { CodexConfig.patchCodexConfig() } : {}
+    )
     reload()
     if preset.authKind == .grokOAuth {
       let status = GrokOAuthSession.status()
@@ -228,9 +246,13 @@ final class SettingsStore: ObservableObject {
 
   /// Saves a Cursor API key (Application Support) and installs/reinstalls the Cursor provider.
   /// Call only after `CursorBridgeRuntime.validateAPIKey` succeeds.
-  func installCursorPreset(apiKey: String) throws {
+  func installCursorPreset(
+    apiKey: String,
+    seedModels: Bool = true,
+    patchConfig: Bool = true
+  ) throws {
     try CursorBridgeKeychain.save(apiKey)
-    try installPreset(.cursor, apiKey: "local")
+    try installPreset(.cursor, apiKey: "local", seedModels: seedModels, patchConfig: patchConfig)
   }
 
   /// Updates the stored Cursor API key for an already-installed Cursor provider.
@@ -268,17 +290,36 @@ final class SettingsStore: ObservableObject {
     statusMessage = "Codex config reset — your providers and models are kept. Codex restart requested."
   }
 
+  /// Writes the exported catalog and managed `config.toml` block. Does not restart Codex.
+  /// Creates `~/.codex/config.toml` when it is missing so first-run setup can opt in.
+  func applyGatewayConfig(
+    ensureConfig: () throws -> Void = { try CodexConfig.ensureConfigFile() },
+    sync: () throws -> Void = { try ModelCatalog.shared.syncCodexCatalogExport() },
+    patch: () throws -> Void = { try CodexConfig.patchCodexConfigThrowing() }
+  ) throws {
+    try ensureConfig()
+    try sync()
+    try patch()
+    reload()
+    needsCodexRestart = true
+    statusMessage = "Codex config updated with your models."
+  }
+
   /// Applies CodexGateway's current providers and models to Codex's config (re-exports the
   /// catalog and patches config.toml), then restarts Codex.
   func updateGatewayConfig(
-    sync: () -> Void = { ModelCatalog.shared.syncCodexCatalogExport() },
-    patch: () -> Void = { CodexConfig.patchCodexConfig() },
+    ensureConfig: () throws -> Void = { try CodexConfig.ensureConfigFile() },
+    sync: () throws -> Void = { try ModelCatalog.shared.syncCodexCatalogExport() },
+    patch: () throws -> Void = { try CodexConfig.patchCodexConfigThrowing() },
     restart: () -> Void = { CodexAppServer.shared.restartCodexDesktop() }
   ) {
-    sync()
-    patch()
+    do {
+      try applyGatewayConfig(ensureConfig: ensureConfig, sync: sync, patch: patch)
+    } catch {
+      errorMessage = error.localizedDescription
+      return
+    }
     restart()
-    reload()
     needsCodexRestart = false
     statusMessage = "Codex config updated with your models. Codex restart requested."
   }

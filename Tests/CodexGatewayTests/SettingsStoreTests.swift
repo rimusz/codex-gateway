@@ -54,20 +54,75 @@ final class SettingsStoreTests: XCTestCase {
 
     func testUpdateGatewayConfigSyncsPatchesAndRestarts() {
         let store = SettingsStore()
+        var didEnsure = false
         var didSync = false
         var didPatch = false
         var didRestart = false
 
         store.updateGatewayConfig(
+            ensureConfig: { didEnsure = true },
             sync: { didSync = true },
             patch: { didPatch = true },
             restart: { didRestart = true }
         )
 
+        XCTAssertTrue(didEnsure)
         XCTAssertTrue(didSync)
         XCTAssertTrue(didPatch)
         XCTAssertTrue(didRestart)
+        XCTAssertFalse(store.needsCodexRestart)
         XCTAssertEqual(store.statusMessage, "Codex config updated with your models. Codex restart requested.")
+    }
+
+    func testApplyGatewayConfigDoesNotRestart() throws {
+        let store = SettingsStore()
+        var didEnsure = false
+        var didSync = false
+        var didPatch = false
+
+        try store.applyGatewayConfig(
+            ensureConfig: { didEnsure = true },
+            sync: { didSync = true },
+            patch: { didPatch = true }
+        )
+
+        XCTAssertTrue(didEnsure)
+        XCTAssertTrue(didSync)
+        XCTAssertTrue(didPatch)
+        XCTAssertTrue(store.needsCodexRestart)
+        XCTAssertEqual(store.statusMessage, "Codex config updated with your models.")
+    }
+
+    func testApplyGatewayConfigPropagatesSyncFailureAndDoesNotPatch() {
+        enum TestError: Error { case syncFailed }
+        let store = SettingsStore()
+        var didPatch = false
+
+        XCTAssertThrowsError(
+            try store.applyGatewayConfig(
+                ensureConfig: {},
+                sync: { throw TestError.syncFailed },
+                patch: { didPatch = true }
+            )
+        )
+        XCTAssertFalse(didPatch)
+        XCTAssertFalse(store.needsCodexRestart)
+    }
+
+    func testUpdateGatewayConfigDoesNotRestartAfterPatchFailure() {
+        enum TestError: Error { case patchFailed }
+        let store = SettingsStore()
+        var didRestart = false
+
+        store.updateGatewayConfig(
+            ensureConfig: {},
+            sync: {},
+            patch: { throw TestError.patchFailed },
+            restart: { didRestart = true }
+        )
+
+        XCTAssertFalse(didRestart)
+        XCTAssertNotNil(store.errorMessage)
     }
 
     func testGatewayInSyncRequiresManagedBlockAndMatchingModels() {

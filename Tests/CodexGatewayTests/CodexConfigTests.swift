@@ -82,4 +82,37 @@ final class CodexConfigTests: XCTestCase {
         let apiKey = #"{ "OPENAI_API_KEY": "sk-test" }"#
         XCTAssertTrue(CodexConfig.signedIn(fromAuthData: Data(apiKey.utf8)))
     }
+
+    func testEnsureConfigFileCreatesMissingFile() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("codexgateway-ensure-\(UUID().uuidString)")
+        let path = root.appendingPathComponent("config.toml").path
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        XCTAssertFalse(FileManager.default.fileExists(atPath: path))
+        try CodexConfig.ensureConfigFile(at: path)
+        XCTAssertTrue(FileManager.default.fileExists(atPath: path))
+
+        try "keep".write(toFile: path, atomically: true, encoding: .utf8)
+        try CodexConfig.ensureConfigFile(at: path)
+        XCTAssertEqual(try String(contentsOfFile: path, encoding: .utf8), "keep")
+    }
+
+    func testThrowingPatchReportsMissingFileAndWritesManagedBlock() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("codexgateway-patch-\(UUID().uuidString)")
+        let path = root.appendingPathComponent("config.toml").path
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        XCTAssertThrowsError(try CodexConfig.patchCodexConfigThrowing(at: path))
+
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        try "[ui]\nnotifications = true\n".write(toFile: path, atomically: true, encoding: .utf8)
+        try CodexConfig.patchCodexConfigThrowing(at: path)
+
+        let patched = try String(contentsOfFile: path, encoding: .utf8)
+        XCTAssertTrue(patched.contains(AppIdentity.managedStart))
+        XCTAssertTrue(patched.contains("[ui]"))
+        XCTAssertTrue(patched.contains("notifications = true"))
+    }
 }

@@ -1,7 +1,7 @@
 ---
 name: verifier
+model: claude-opus-5[]
 description: Read-only reviewer. Use after implementation to check work matches the plan.
-model: composer-2.5[fast=false]
 readonly: true
 ---
 

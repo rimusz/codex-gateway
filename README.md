@@ -38,6 +38,7 @@ Codex Desktop          Codex CLI
 - **Shared model catalog** — Settings exports models into `~/.codex` so Desktop’s picker and the CLI both see them
 - **Native GPT pass-through** — official OpenAI / ChatGPT requests are untouched
 - **No Codex sign-in needed for local-only use** (e.g. Ollama); sign-in is only required for native GPT/ChatGPT
+- **First-run setup** — when the catalog is empty, a three-step window (choose provider → connect → pick models) writes Codex config and offers Restart Codex
 - **Menu bar status** with live gateway state + port; Cursor Bridge address appears on a second line only when the Cursor provider is installed; plus native Settings, Doctor, and About windows
 - **Doctor** — menu **Doctor…** (⌘D) or Settings toolbar: checks the local gateway, Codex config/sign-in, Node.js (for Cursor), Cursor API key/sidecar, and Grok OAuth
 - **Open at Login** — optional menu-bar toggle so CodexGateway starts with macOS
@@ -78,12 +79,13 @@ Existing installs upgrade smoothly:
 ## Quick start
 
 1. Launch CodexGateway — a status icon appears in the menu bar.
-2. (Optional) Menu bar → **Open at Login** so the gateway starts automatically after reboot.
-3. Open **Settings** (menu bar → Settings, or ⌘,).
-4. Open **Add Provider**, install a provider preset, and enter its API key (skipped for Ollama and **xAI Grok (OAuth)** — OAuth uses `grok login` / `~/.grok/auth.json`).
-5. Click **Add model** on the provider row and pick the models you want (Grok OAuth seeds a suggested model on install).
-6. Restart Codex when prompted (**Restart Codex**, ⌘R) so Desktop/CLI reload config.
-7. Pick a model in **Codex Desktop** (model picker) or the **Codex CLI** — your custom models are available in both.
+2. If you have no providers or models yet, **Set Up CodexGateway** opens: pick a provider, connect (API key / Grok login / Cursor key as needed), select models, then Finish. That writes Codex's config and offers **Restart Codex**. Skip or Back before Finish does not keep a half-installed provider; Skip also hides the window until the next launch (or until the catalog is empty again).
+3. (Optional) Menu bar → **Open at Login** so the gateway starts automatically after reboot.
+4. To add more later, open **Settings** (menu bar → Settings, or ⌘,).
+5. Open **Add Provider**, install a provider preset, and enter its API key (skipped for Ollama and **xAI Grok (OAuth)** — OAuth uses `grok login` / `~/.grok/auth.json`).
+6. Click **Add model** on the provider row and pick the models you want (Grok OAuth seeds a suggested model on install).
+7. Restart Codex when prompted (**Restart Codex**, ⌘R) so Desktop/CLI reload config.
+8. Pick a model in **Codex Desktop** (model picker) or the **Codex CLI** — your custom models are available in both.
 
 If the gateway, Codex config, Node.js, Cursor, or Grok OAuth looks off, open **Doctor…** (⌘D) from the menu bar or the Settings toolbar.
 

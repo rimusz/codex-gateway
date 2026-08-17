@@ -321,6 +321,13 @@ class StatusBarController: NSObject, NSMenuDelegate {
 
 #if DEBUG
         menu.addItem(makeSimulateUpdatesMenuItem())
+        let setupItem = NSMenuItem(
+          title: "Show Setup…",
+          action: #selector(showSetup),
+          keyEquivalent: ""
+        )
+        setupItem.target = self
+        menu.addItem(setupItem)
 #endif
 
         menu.addItem(.separator())
@@ -373,6 +380,12 @@ class StatusBarController: NSObject, NSMenuDelegate {
     }
 
 #if DEBUG
+    @objc private func showSetup() {
+      DispatchQueue.main.async {
+        SetupWindowController.shared.show()
+      }
+    }
+
     private func makeSimulateUpdatesMenuItem() -> NSMenuItem {
         let simulateItem = NSMenuItem(
             title: "Simulate Update Available",

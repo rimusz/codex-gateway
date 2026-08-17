@@ -38,6 +38,23 @@ final class ModelCatalogTests: XCTestCase {
         XCTAssertEqual(provider.displayLabel, "Cline Pass")
     }
 
+    func testCatalogModelsFromFetchedUsesProviderPrefixedSlug() {
+        let provider = ProviderConfig(
+            name: "ollama",
+            display_name: "Ollama (local)",
+            base_url: "http://localhost:11434/v1",
+            api_key: "ollama"
+        )
+        let models = ModelCatalog.catalogModels(
+            from: [FetchedModel(id: "llama3.2", ownedBy: "ollama")],
+            for: provider
+        )
+        XCTAssertEqual(models.count, 1)
+        XCTAssertEqual(models[0].slug, "ollama/llama3.2")
+        XCTAssertEqual(models[0].model, "llama3.2")
+        XCTAssertEqual(models[0].provider, "ollama")
+    }
+
     func testProviderDisplayLabelPrefersStoredNameOverPreset() {
         let provider = ProviderConfig(
             name: "xai",

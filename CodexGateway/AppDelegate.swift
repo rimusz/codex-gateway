@@ -56,6 +56,9 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         apiClient.fetchStatus()
       }
       self.log("[App] Ready")
+      Task { @MainActor in
+        SetupWindowController.shared.showIfNeeded()
+      }
     }
   }
 
