@@ -1,7 +1,7 @@
 ---
 name: planner
+model: gpt-5.6-sol[]
 description: Read-only planner. Use to decompose a goal into scoped, independent tasks before implementation.
-model: composer-2.5[fast=false]
 readonly: true
 ---
 
