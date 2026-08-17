@@ -304,7 +304,7 @@ struct SetupView: View {
   private func binding(for slug: String) -> Binding<Bool> {
     Binding(
       get: { store.flow.selectedSlugs.contains(slug) },
-      set: { _ in store.flow.toggle(slug: slug) }
+      set: { isSelected in store.flow.setSelected(isSelected, slug: slug) }
     )
   }
 

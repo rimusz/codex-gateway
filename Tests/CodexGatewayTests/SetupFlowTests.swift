@@ -87,6 +87,11 @@ final class SetupFlowTests: XCTestCase {
         flow.toggle(slug: "a/two")
         XCTAssertTrue(flow.canFinish)
 
+        flow.setSelected(true, slug: "a/two")
+        XCTAssertEqual(flow.selectedSlugs, ["a/two"])
+        flow.setSelected(false, slug: "a/two")
+        XCTAssertTrue(flow.selectedSlugs.isEmpty)
+
         flow.selectNone()
         XCTAssertFalse(flow.canFinish)
 

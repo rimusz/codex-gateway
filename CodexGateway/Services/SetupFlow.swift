@@ -124,6 +124,14 @@ struct SetupFlow: Equatable {
     }
   }
 
+  mutating func setSelected(_ isSelected: Bool, slug: String) {
+    if isSelected {
+      selectedSlugs.insert(slug)
+    } else {
+      selectedSlugs.remove(slug)
+    }
+  }
+
   mutating func selectAll() {
     selectedSlugs = Set(choices.map(\.slug))
   }
