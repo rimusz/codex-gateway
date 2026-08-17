@@ -15,7 +15,15 @@ git switch main
 git pull --ff-only
 ```
 
-3. Run the release:
+3. Read `VERSION` and compare it with the latest published release:
+
+```sh
+gh release view --json tagName --jq '.tagName'
+```
+
+Treat a leading `v` as part of the tag format, not the semantic version. Continue only when `VERSION` is strictly higher than the latest release version; otherwise stop and report both versions.
+
+4. Run the release:
 
 ```sh
 make release
