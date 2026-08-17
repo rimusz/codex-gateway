@@ -87,6 +87,16 @@ final class CodexConfigTests: XCTestCase {
     }
 
     func testDetectsGatewayEntriesOutsideManagedMarkers() {
+        let native = """
+        model_provider = "openai"
+        model_catalog_json = "/tmp/native-models.json"
+        openai_base_url = "https://api.openai.com/v1"
+
+        [model_providers.openai]
+        name = "OpenAI"
+        """
+        XCTAssertFalse(CodexConfig.hasConflictingGatewayEntries(native))
+
         let valid = """
         # >>> codexgateway managed >>>
         model_provider = "codexgateway"
@@ -101,12 +111,17 @@ final class CodexConfigTests: XCTestCase {
         """
         XCTAssertFalse(CodexConfig.hasConflictingGatewayEntries(valid))
 
-        let conflicting = valid + """
-
+        let conflicting = """
+        # >>> codexgateway managed >>>
         model_provider = "codexgateway"
+        # <<< codexgateway managed <<<
 
+        \(native)
+
+        # >>> codexgateway managed >>>
         [model_providers.codexgateway]
         name = "CodexGateway"
+        # <<< codexgateway managed <<<
         """
         XCTAssertTrue(CodexConfig.hasConflictingGatewayEntries(conflicting))
     }

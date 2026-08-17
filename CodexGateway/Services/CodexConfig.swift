@@ -75,6 +75,7 @@ enum CodexConfig {
   /// Detects gateway routing that escaped the managed markers and would conflict
   /// with the managed keys/tables in the same TOML document.
   static func hasConflictingGatewayEntries(_ content: String) -> Bool {
+    guard containsManagedBlock(content) else { return false }
     let unmanaged = stripManagedBlocks(content)
       .trimmingCharacters(in: .whitespacesAndNewlines)
     return stripConflictingGatewayEntries(unmanaged) != unmanaged

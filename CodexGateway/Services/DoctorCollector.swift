@@ -22,7 +22,8 @@ enum DoctorCollector {
       applied: ModelCatalog.shared.appliedCodexCustomSlugs(),
       desired: Set(models.map(\.slug))
     )
-    inputs.configHasConflicts = configContent.map(CodexConfig.hasConflictingGatewayEntries) ?? false
+    inputs.configHasConflicts = configApplied
+      && (configContent.map(CodexConfig.hasConflictingGatewayEntries) ?? false)
     inputs.signedIn = CodexConfig.isSignedIn()
     inputs.hasCustomModels = SettingsStore.customModelsHidden(signedIn: false, models: models)
 
