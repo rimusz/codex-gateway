@@ -57,16 +57,23 @@ enum DoctorCollector {
 }
 
 enum DoctorConfigRepair {
-  @MainActor
   static func run(
-    ensureConfig: () throws -> Void = { try CodexConfig.ensureConfigFile() },
-    syncCatalog: () throws -> Void = { try ModelCatalog.shared.syncCodexCatalogExport() },
-    patchConfig: () throws -> Void = { try CodexConfig.patchCodexConfigThrowing() },
-    restartCodex: () -> Void = { CodexAppServer.shared.restartCodexDesktop() }
-  ) throws {
-    try ensureConfig()
-    try syncCatalog()
-    try patchConfig()
-    restartCodex()
+    ensureConfig: @escaping @Sendable () throws -> Void = { try CodexConfig.ensureConfigFile() },
+    syncCatalog: @escaping @Sendable () throws -> Void = {
+      try ModelCatalog.shared.syncCodexCatalogExport()
+    },
+    patchConfig: @escaping @Sendable () throws -> Void = {
+      try CodexConfig.patchCodexConfigThrowing()
+    },
+    restartCodex: @escaping @Sendable () -> Void = {
+      CodexAppServer.shared.restartCodexDesktop()
+    }
+  ) async throws {
+    try await Task.detached(priority: .userInitiated) {
+      try ensureConfig()
+      try syncCatalog()
+      try patchConfig()
+      restartCodex()
+    }.value
   }
 }

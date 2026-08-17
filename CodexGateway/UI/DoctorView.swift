@@ -192,7 +192,7 @@ struct DoctorView: View {
     configRepairError = nil
     defer { isRepairingConfig = false }
     do {
-      try DoctorConfigRepair.run()
+      try await DoctorConfigRepair.run()
       inputs = await DoctorCollector.collect()
     } catch {
       configRepairError = "Repair failed: \(error.localizedDescription)"

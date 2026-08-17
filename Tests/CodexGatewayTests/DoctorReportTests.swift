@@ -1,6 +1,23 @@
 import XCTest
 @testable import CodexGateway
 
+private final class DoctorRepairCallRecorder: @unchecked Sendable {
+  private let lock = NSLock()
+  private var storage: [String] = []
+
+  func append(_ call: String) {
+    lock.lock()
+    storage.append(call)
+    lock.unlock()
+  }
+
+  var calls: [String] {
+    lock.lock()
+    defer { lock.unlock() }
+    return storage
+  }
+}
+
 final class DoctorReportTests: XCTestCase {
   private func healthyInputs() -> DoctorInputs {
     DoctorInputs(
@@ -188,29 +205,32 @@ final class DoctorReportTests: XCTestCase {
   }
 
   @MainActor
-  func testConfigRepairAppliesInOrderAndRestartsOnlyAfterSuccess() throws {
-    var calls: [String] = []
-    try DoctorConfigRepair.run(
-      ensureConfig: { calls.append("ensure") },
-      syncCatalog: { calls.append("sync") },
-      patchConfig: { calls.append("patch") },
-      restartCodex: { calls.append("restart") }
+  func testConfigRepairAppliesInOrderAndRestartsOnlyAfterSuccess() async throws {
+    let success = DoctorRepairCallRecorder()
+    try await DoctorConfigRepair.run(
+      ensureConfig: { success.append("ensure:\(Thread.isMainThread)") },
+      syncCatalog: { success.append("sync:\(Thread.isMainThread)") },
+      patchConfig: { success.append("patch:\(Thread.isMainThread)") },
+      restartCodex: { success.append("restart:\(Thread.isMainThread)") }
     )
-    XCTAssertEqual(calls, ["ensure", "sync", "patch", "restart"])
+    XCTAssertEqual(success.calls, [
+      "ensure:false", "sync:false", "patch:false", "restart:false",
+    ])
 
-    calls = []
-    XCTAssertThrowsError(
-      try DoctorConfigRepair.run(
-        ensureConfig: { calls.append("ensure") },
-        syncCatalog: { calls.append("sync") },
+    let failure = DoctorRepairCallRecorder()
+    do {
+      try await DoctorConfigRepair.run(
+        ensureConfig: { failure.append("ensure:\(Thread.isMainThread)") },
+        syncCatalog: { failure.append("sync:\(Thread.isMainThread)") },
         patchConfig: {
-          calls.append("patch")
+          failure.append("patch:\(Thread.isMainThread)")
           throw CocoaError(.fileWriteUnknown)
         },
-        restartCodex: { calls.append("restart") }
+        restartCodex: { failure.append("restart:\(Thread.isMainThread)") }
       )
-    )
-    XCTAssertEqual(calls, ["ensure", "sync", "patch"])
+      XCTFail("Expected repair to throw")
+    } catch {}
+    XCTAssertEqual(failure.calls, ["ensure:false", "sync:false", "patch:false"])
   }
 
   func testStatusSymbols() {
