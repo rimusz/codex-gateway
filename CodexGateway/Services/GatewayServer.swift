@@ -10,14 +10,14 @@ final class GatewayServer {
   func start() {
     Paths.ensureConfigDir()
     if !FileManager.default.fileExists(atPath: Paths.providersConfig) {
-      try? ModelCatalog.shared.saveProviders(ModelCatalog.shared.loadProviders())
+      try? ModelCatalog.shared.saveProviders(ProvidersFile(providers: []))
     }
     // Only keep Codex in sync if CodexGateway was already applied to it. Never silently
     // inject into a fresh/native Codex (e.g. after the user reinstalled Codex or
     // deleted ~/.codex) — Settings' "Update Gateway Config" is the opt-in.
     if CodexConfig.hasManagedBlock() {
       ModelCatalog.shared.normalizeDisplayNames()
-      ModelCatalog.shared.syncCodexCatalogExport()
+      try? ModelCatalog.shared.syncCodexCatalogExport()
       CodexConfig.patchCodexConfig()
     }
 

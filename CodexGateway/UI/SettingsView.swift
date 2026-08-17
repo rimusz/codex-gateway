@@ -1330,34 +1330,7 @@ struct SettingsView: View {
   }
 
   private func catalogModels(from fetched: [FetchedModel], for provider: ProviderConfig) -> [CatalogModel] {
-    let preset = ProviderPreset.matching(providerID: provider.name)
-    let liveCline = preset?.supportsLiveCatalogRefresh == true
-    let isCursor = provider.usesCursorBridge || preset?.isManagedCursorBridge == true
-    let models = isCursor ? CursorBridge.filterCatalog(fetched) : fetched
-    return models.map { fetchedModel in
-      let displayName: String
-      if liveCline {
-        let label = fetchedModel.ownedBy?.trimmingCharacters(in: .whitespacesAndNewlines)
-        let base = (label?.isEmpty == false ? label! : ClinePassCatalog.displayLabel(for: fetchedModel.id))
-        displayName = ClinePassCatalog.displayName(for: base)
-      } else if isCursor {
-        displayName = CursorBridge.displayName(for: fetchedModel.id)
-      } else {
-        // Includes xAI API / Grok OAuth `(API)` / `(OAuth)` suffixes via prettyDisplayName.
-        displayName = ModelCatalog.prettyDisplayName(from: fetchedModel.id, providerID: provider.name)
-      }
-      return CatalogModel(
-        slug: "\(provider.name)/\(ProviderPreset.slugPart(from: fetchedModel.id))",
-        model: fetchedModel.id,
-        provider: provider.name,
-        backend_provider: provider.name,
-        display_name: displayName,
-        visibility: "list",
-        input_modalities: nil,
-        vision_bridge_enabled: nil,
-        context_window: nil
-      )
-    }
+    ModelCatalog.catalogModels(from: fetched, for: provider)
   }
 
   private func applySelectedCatalogModel(slug: String) {

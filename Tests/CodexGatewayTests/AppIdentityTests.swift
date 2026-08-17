@@ -52,6 +52,13 @@ final class AppIdentityTests: XCTestCase {
       bundleURL: modern,
       bundleName: "CodexGateway"
     ))
+    XCTAssertEqual(
+      AppBundleMigration.isLegacyBundleMigrationPending,
+      AppBundleMigration.shouldMigrateLegacyBundle(
+        bundleURL: Bundle.main.bundleURL,
+        bundleName: Bundle.main.object(forInfoDictionaryKey: "CFBundleName") as? String
+      )
+    )
   }
 
   func testShellEscapeQuotesPathsForBash() {

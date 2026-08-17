@@ -63,6 +63,14 @@ enum AppBundleMigration {
       && bundleName == AppIdentity.productName
   }
 
+  /// True when this process is still running from `CodexBar.app` and should quit to rename.
+  static var isLegacyBundleMigrationPending: Bool {
+    shouldMigrateLegacyBundle(
+      bundleURL: Bundle.main.bundleURL,
+      bundleName: Bundle.main.object(forInfoDictionaryKey: "CFBundleName") as? String
+    )
+  }
+
   /// - Returns: `true` when a rename helper was launched (caller should stop normal startup).
   @MainActor
   @discardableResult

@@ -27,28 +27,51 @@ enum CodexConfig {
     return result.trimmingCharacters(in: .whitespacesAndNewlines)
   }
 
+  /// Creates `~/.codex` and an empty `config.toml` when missing so an explicit
+  /// apply (Settings Update / first-run Finish) can write the managed block.
+  static func ensureConfigFile(
+    at path: String = Paths.codexConfig,
+    fileManager: FileManager = .default
+  ) throws {
+    let directory = (path as NSString).deletingLastPathComponent
+    try fileManager.createDirectory(atPath: directory, withIntermediateDirectories: true)
+    if !fileManager.fileExists(atPath: path) {
+      try Data().write(to: URL(fileURLWithPath: path))
+    }
+  }
+
   static func patchCodexConfig() {
-    Paths.ensureConfigDir()
-    guard FileManager.default.fileExists(atPath: Paths.codexConfig) else { return }
-
     do {
-      let content = try String(contentsOfFile: Paths.codexConfig, encoding: .utf8)
-      let stripped = stripManagedBlocks(content)
-
-      // Only require ChatGPT/OpenAI sign-in when the user is actually signed in
-      // to Codex. Otherwise (e.g. local-only Ollama use) skip the login screen so
-      // Codex works without an account. When signed in, native GPT/ChatGPT
-      // pass-through keeps working; custom providers work in both cases because
-      // the gateway supplies their keys from ~/.codexgateway/providers.json.
-      let managedTop = managedTopBlock() + "\n\n"
-      let managedProvider = "\n\n" + managedProviderBlock(requiresOpenAIAuth: isSignedIn())
-
-      let patched = managedTop + stripped + managedProvider + "\n"
-      try patched.write(toFile: Paths.codexConfig, atomically: true, encoding: .utf8)
-      GatewayLog.info("Patched ~/.codex/config.toml with gateway provider (requires_openai_auth=\(isSignedIn()))")
+      try patchCodexConfigThrowing()
     } catch {
       GatewayLog.error("Failed to patch config.toml: \(error.localizedDescription)")
     }
+  }
+
+  /// Throwing variant used by explicit Apply/Finish flows so they can report a failed write.
+  static func patchCodexConfigThrowing(
+    at path: String = Paths.codexConfig
+  ) throws {
+    Paths.ensureConfigDir()
+    guard FileManager.default.fileExists(atPath: path) else {
+      throw CocoaError(.fileNoSuchFile)
+    }
+
+    let content = try String(contentsOfFile: path, encoding: .utf8)
+    let stripped = stripManagedBlocks(content)
+
+    // Only require ChatGPT/OpenAI sign-in when the user is actually signed in
+    // to Codex. Otherwise (e.g. local-only Ollama use) skip the login screen so
+    // Codex works without an account. When signed in, native GPT/ChatGPT
+    // pass-through keeps working; custom providers work in both cases because
+    // the gateway supplies their keys from ~/.codexgateway/providers.json.
+    let requiresOpenAIAuth = isSignedIn()
+    let managedTop = managedTopBlock() + "\n\n"
+    let managedProvider = "\n\n" + managedProviderBlock(requiresOpenAIAuth: requiresOpenAIAuth)
+
+    let patched = managedTop + stripped + managedProvider + "\n"
+    try patched.write(toFile: path, atomically: true, encoding: .utf8)
+    GatewayLog.info("Patched ~/.codex/config.toml with gateway provider (requires_openai_auth=\(requiresOpenAIAuth))")
   }
 
   /// Builds the managed top-level keys. `model_provider = "codexgateway"` makes Codex
