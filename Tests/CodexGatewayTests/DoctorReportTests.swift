@@ -1,6 +1,23 @@
 import XCTest
 @testable import CodexGateway
 
+private final class DoctorRepairCallRecorder: @unchecked Sendable {
+  private let lock = NSLock()
+  private var storage: [String] = []
+
+  func append(_ call: String) {
+    lock.lock()
+    storage.append(call)
+    lock.unlock()
+  }
+
+  var calls: [String] {
+    lock.lock()
+    defer { lock.unlock() }
+    return storage
+  }
+}
+
 final class DoctorReportTests: XCTestCase {
   private func healthyInputs() -> DoctorInputs {
     DoctorInputs(
@@ -8,6 +25,7 @@ final class DoctorReportTests: XCTestCase {
       gatewayPort: 8765,
       configApplied: true,
       configInSync: true,
+      configHasConflicts: false,
       signedIn: true,
       hasCustomModels: true,
       nodeFound: true,
@@ -65,6 +83,16 @@ final class DoctorReportTests: XCTestCase {
     XCTAssertFalse(DoctorReport.isHealthy(inputs))
     XCTAssertEqual(check(inputs, id: "config").status, .warning)
     XCTAssertTrue(DoctorReport.primaryRemediation(inputs)?.contains("out of date") == true)
+  }
+
+  func testConflictingConfigIsErrorWithRepairRemediation() {
+    var inputs = healthyInputs()
+    inputs.configHasConflicts = true
+
+    XCTAssertFalse(DoctorReport.isHealthy(inputs))
+    XCTAssertEqual(check(inputs, id: "config").status, .error)
+    XCTAssertTrue(check(inputs, id: "config").detail.contains("invalid"))
+    XCTAssertTrue(DoctorReport.primaryRemediation(inputs)?.contains("Repair") == true)
   }
 
   func testSignedOutWithCustomModelsIsWarningNotUnhealthy() {
@@ -174,6 +202,35 @@ final class DoctorReportTests: XCTestCase {
   func testShouldBeginRunSkipsOverlappingCollect() {
     XCTAssertTrue(DoctorReport.shouldBeginRun(isRunning: false))
     XCTAssertFalse(DoctorReport.shouldBeginRun(isRunning: true))
+  }
+
+  @MainActor
+  func testConfigRepairAppliesInOrderAndRestartsOnlyAfterSuccess() async throws {
+    let success = DoctorRepairCallRecorder()
+    try await DoctorConfigRepair.run(
+      ensureConfig: { success.append("ensure:\(Thread.isMainThread)") },
+      syncCatalog: { success.append("sync:\(Thread.isMainThread)") },
+      patchConfig: { success.append("patch:\(Thread.isMainThread)") },
+      restartCodex: { success.append("restart:\(Thread.isMainThread)") }
+    )
+    XCTAssertEqual(success.calls, [
+      "ensure:false", "sync:false", "patch:false", "restart:false",
+    ])
+
+    let failure = DoctorRepairCallRecorder()
+    do {
+      try await DoctorConfigRepair.run(
+        ensureConfig: { failure.append("ensure:\(Thread.isMainThread)") },
+        syncCatalog: { failure.append("sync:\(Thread.isMainThread)") },
+        patchConfig: {
+          failure.append("patch:\(Thread.isMainThread)")
+          throw CocoaError(.fileWriteUnknown)
+        },
+        restartCodex: { failure.append("restart:\(Thread.isMainThread)") }
+      )
+      XCTFail("Expected repair to throw")
+    } catch {}
+    XCTAssertEqual(failure.calls, ["ensure:false", "sync:false", "patch:false"])
   }
 
   func testStatusSymbols() {

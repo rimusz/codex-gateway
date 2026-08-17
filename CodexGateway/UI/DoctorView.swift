@@ -4,6 +4,8 @@ import SwiftUI
 struct DoctorView: View {
   @State private var inputs = DoctorInputs()
   @State private var isRunning = false
+  @State private var isRepairingConfig = false
+  @State private var configRepairError: String?
 
   private var checks: [DoctorCheck] { DoctorReport.checks(from: inputs) }
 
@@ -66,7 +68,13 @@ struct DoctorView: View {
           .font(.callout.weight(.semibold))
           .fixedSize(horizontal: false, vertical: true)
         HStack(spacing: 10) {
-          if needsNodeInstall {
+          if needsConfigRepair {
+            Button(isRepairingConfig ? "Repairing…" : "Repair and Restart Codex") {
+              Task { await repairConfig() }
+            }
+            .controlSize(.small)
+            .disabled(isRepairingConfig)
+          } else if needsNodeInstall {
             Button("Install with Homebrew…") { openNodeBrewInstallInTerminal() }
               .controlSize(.small)
             Button("nodejs.org…") {
@@ -84,6 +92,12 @@ struct DoctorView: View {
             .controlSize(.small)
           }
         }
+        if let configRepairError {
+          Text(configRepairError)
+            .font(.caption)
+            .foregroundStyle(.red)
+            .fixedSize(horizontal: false, vertical: true)
+        }
       }
       Spacer(minLength: 0)
     }
@@ -95,8 +109,13 @@ struct DoctorView: View {
     inputs.gatewayReachable && inputs.cursorProviderInstalled && !inputs.nodeMeetsMinimum
   }
 
+  private var needsConfigRepair: Bool {
+    inputs.gatewayReachable && inputs.configHasConflicts
+  }
+
   private var needsGrokLogin: Bool {
     inputs.gatewayReachable
+      && !needsConfigRepair
       && !(inputs.cursorProviderInstalled && !inputs.nodeMeetsMinimum)
       && !(inputs.cursorProviderInstalled && !inputs.cursorKeyPresent)
       && inputs.grokOAuthInstalled
@@ -105,6 +124,7 @@ struct DoctorView: View {
 
   private var needsSettings: Bool {
     inputs.gatewayReachable
+      && !needsConfigRepair
       && !needsNodeInstall
       && !needsGrokLogin
       && (
@@ -163,6 +183,20 @@ struct DoctorView: View {
     isRunning = true
     defer { isRunning = false }
     inputs = await DoctorCollector.collect()
+  }
+
+  @MainActor
+  private func repairConfig() async {
+    guard !isRepairingConfig else { return }
+    isRepairingConfig = true
+    configRepairError = nil
+    defer { isRepairingConfig = false }
+    do {
+      try await DoctorConfigRepair.run()
+      inputs = await DoctorCollector.collect()
+    } catch {
+      configRepairError = "Repair failed: \(error.localizedDescription)"
+    }
   }
 
   private func openNodeBrewInstallInTerminal() {
