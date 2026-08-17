@@ -27,6 +27,59 @@ enum CodexConfig {
     return result.trimmingCharacters(in: .whitespacesAndNewlines)
   }
 
+  /// Removes gateway routing left outside managed markers (for example after another
+  /// config writer re-serializes managed values). Keeping those entries would create
+  /// duplicate TOML keys/tables when the managed blocks are written again.
+  static func stripConflictingGatewayEntries(_ content: String) -> String {
+    let managedRootKeys = ["model_provider", "model_catalog_json", "openai_base_url"]
+    let managedProviderTables = [
+      "model_providers.\(AppIdentity.codexProviderID)",
+      "model_providers.\(AppIdentity.legacyCodexProviderID)",
+    ]
+    var currentTable: String?
+    var skipsCurrentTable = false
+    var lines: [String] = []
+
+    for line in content.components(separatedBy: .newlines) {
+      let trimmed = line.trimmingCharacters(in: .whitespaces)
+      if trimmed.hasPrefix("["),
+         let closingBracket = trimmed.firstIndex(of: "]") {
+        let startsArrayTable = trimmed.hasPrefix("[[")
+        let nameStart = trimmed.index(
+          trimmed.startIndex,
+          offsetBy: startsArrayTable ? 2 : 1
+        )
+        var tableName = String(trimmed[nameStart..<closingBracket])
+        if startsArrayTable, tableName.hasSuffix("]") {
+          tableName.removeLast()
+        }
+        currentTable = tableName.trimmingCharacters(in: .whitespaces)
+        skipsCurrentTable = managedProviderTables.contains(currentTable ?? "")
+        if skipsCurrentTable { continue }
+      }
+
+      if skipsCurrentTable { continue }
+      let assignmentKey = trimmed.split(separator: "=", maxSplits: 1)
+        .first?
+        .trimmingCharacters(in: .whitespaces)
+      if currentTable == nil, assignmentKey.map(managedRootKeys.contains) == true {
+        continue
+      }
+      lines.append(line)
+    }
+
+    return lines.joined(separator: "\n")
+      .trimmingCharacters(in: .whitespacesAndNewlines)
+  }
+
+  /// Detects gateway routing that escaped the managed markers and would conflict
+  /// with the managed keys/tables in the same TOML document.
+  static func hasConflictingGatewayEntries(_ content: String) -> Bool {
+    let unmanaged = stripManagedBlocks(content)
+      .trimmingCharacters(in: .whitespacesAndNewlines)
+    return stripConflictingGatewayEntries(unmanaged) != unmanaged
+  }
+
   /// Creates `~/.codex` and an empty `config.toml` when missing so an explicit
   /// apply (Settings Update / first-run Finish) can write the managed block.
   static func ensureConfigFile(
@@ -58,7 +111,7 @@ enum CodexConfig {
     }
 
     let content = try String(contentsOfFile: path, encoding: .utf8)
-    let stripped = stripManagedBlocks(content)
+    let stripped = stripConflictingGatewayEntries(stripManagedBlocks(content))
 
     // Only require ChatGPT/OpenAI sign-in when the user is actually signed in
     // to Codex. Otherwise (e.g. local-only Ollama use) skip the login screen so
@@ -114,7 +167,7 @@ enum CodexConfig {
     guard FileManager.default.fileExists(atPath: Paths.codexConfig) else { return }
     do {
       let content = try String(contentsOfFile: Paths.codexConfig, encoding: .utf8)
-      let cleaned = stripManagedBlocks(content) + "\n"
+      let cleaned = stripConflictingGatewayEntries(stripManagedBlocks(content)) + "\n"
       try cleaned.write(toFile: Paths.codexConfig, atomically: true, encoding: .utf8)
       try? FileManager.default.removeItem(atPath: Paths.codexModelCatalog)
       GatewayLog.info("Reset Codex config to native state (CodexGateway data preserved)")

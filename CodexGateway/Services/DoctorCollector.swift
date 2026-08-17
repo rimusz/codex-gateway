@@ -11,6 +11,7 @@ enum DoctorCollector {
     let cursorInstalled = providers.contains { $0.usesCursorBridge }
     let grokInstalled = providers.contains { $0.usesGrokOAuth }
     let configApplied = CodexConfig.hasManagedBlock()
+    let configContent = try? String(contentsOfFile: Paths.codexConfig, encoding: .utf8)
 
     var inputs = DoctorInputs()
     inputs.gatewayReachable = await gateway
@@ -21,6 +22,7 @@ enum DoctorCollector {
       applied: ModelCatalog.shared.appliedCodexCustomSlugs(),
       desired: Set(models.map(\.slug))
     )
+    inputs.configHasConflicts = configContent.map(CodexConfig.hasConflictingGatewayEntries) ?? false
     inputs.signedIn = CodexConfig.isSignedIn()
     inputs.hasCustomModels = SettingsStore.customModelsHidden(signedIn: false, models: models)
 
@@ -50,5 +52,20 @@ enum DoctorCollector {
     } catch {
       return false
     }
+  }
+}
+
+enum DoctorConfigRepair {
+  @MainActor
+  static func run(
+    ensureConfig: () throws -> Void = { try CodexConfig.ensureConfigFile() },
+    syncCatalog: () throws -> Void = { try ModelCatalog.shared.syncCodexCatalogExport() },
+    patchConfig: () throws -> Void = { try CodexConfig.patchCodexConfigThrowing() },
+    restartCodex: () -> Void = { CodexAppServer.shared.restartCodexDesktop() }
+  ) throws {
+    try ensureConfig()
+    try syncCatalog()
+    try patchConfig()
+    restartCodex()
   }
 }

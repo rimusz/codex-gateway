@@ -5,6 +5,7 @@ struct DoctorInputs: Equatable, Sendable {
   var gatewayPort = 8765
   var configApplied = false
   var configInSync = false
+  var configHasConflicts = false
   var signedIn = false
   var hasCustomModels = false
   var nodeFound = false
@@ -56,7 +57,10 @@ enum DoctorReport {
   }
 
   static func isHealthy(_ inputs: DoctorInputs) -> Bool {
-    guard inputs.gatewayReachable, inputs.configApplied, inputs.configInSync else {
+    guard inputs.gatewayReachable,
+          inputs.configApplied,
+          inputs.configInSync,
+          !inputs.configHasConflicts else {
       return false
     }
     if inputs.cursorProviderInstalled {
@@ -71,6 +75,9 @@ enum DoctorReport {
   static func primaryRemediation(_ inputs: DoctorInputs) -> String? {
     if !inputs.gatewayReachable {
       return "Gateway is not responding on \(Paths.gatewayHost):\(inputs.gatewayPort). Keep CodexGateway running until the menu bar shows Ready."
+    }
+    if inputs.configHasConflicts {
+      return "Codex config contains duplicate gateway entries. Repair it so Codex can load custom models."
     }
     if inputs.cursorProviderInstalled, !inputs.nodeMeetsMinimum {
       return CursorBridge.NodeRequirement.installGuidance
@@ -111,6 +118,14 @@ enum DoctorReport {
   }
 
   private static func configCheck(_ inputs: DoctorInputs) -> DoctorCheck {
+    if inputs.configHasConflicts {
+      return DoctorCheck(
+        id: "config",
+        title: "Codex config",
+        detail: "Duplicate or stale gateway entries make ~/.codex/config.toml invalid.",
+        status: .error
+      )
+    }
     if inputs.configApplied, inputs.configInSync {
       return DoctorCheck(
         id: "config",

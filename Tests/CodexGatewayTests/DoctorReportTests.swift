@@ -8,6 +8,7 @@ final class DoctorReportTests: XCTestCase {
       gatewayPort: 8765,
       configApplied: true,
       configInSync: true,
+      configHasConflicts: false,
       signedIn: true,
       hasCustomModels: true,
       nodeFound: true,
@@ -65,6 +66,16 @@ final class DoctorReportTests: XCTestCase {
     XCTAssertFalse(DoctorReport.isHealthy(inputs))
     XCTAssertEqual(check(inputs, id: "config").status, .warning)
     XCTAssertTrue(DoctorReport.primaryRemediation(inputs)?.contains("out of date") == true)
+  }
+
+  func testConflictingConfigIsErrorWithRepairRemediation() {
+    var inputs = healthyInputs()
+    inputs.configHasConflicts = true
+
+    XCTAssertFalse(DoctorReport.isHealthy(inputs))
+    XCTAssertEqual(check(inputs, id: "config").status, .error)
+    XCTAssertTrue(check(inputs, id: "config").detail.contains("invalid"))
+    XCTAssertTrue(DoctorReport.primaryRemediation(inputs)?.contains("Repair") == true)
   }
 
   func testSignedOutWithCustomModelsIsWarningNotUnhealthy() {
@@ -174,6 +185,32 @@ final class DoctorReportTests: XCTestCase {
   func testShouldBeginRunSkipsOverlappingCollect() {
     XCTAssertTrue(DoctorReport.shouldBeginRun(isRunning: false))
     XCTAssertFalse(DoctorReport.shouldBeginRun(isRunning: true))
+  }
+
+  @MainActor
+  func testConfigRepairAppliesInOrderAndRestartsOnlyAfterSuccess() throws {
+    var calls: [String] = []
+    try DoctorConfigRepair.run(
+      ensureConfig: { calls.append("ensure") },
+      syncCatalog: { calls.append("sync") },
+      patchConfig: { calls.append("patch") },
+      restartCodex: { calls.append("restart") }
+    )
+    XCTAssertEqual(calls, ["ensure", "sync", "patch", "restart"])
+
+    calls = []
+    XCTAssertThrowsError(
+      try DoctorConfigRepair.run(
+        ensureConfig: { calls.append("ensure") },
+        syncCatalog: { calls.append("sync") },
+        patchConfig: {
+          calls.append("patch")
+          throw CocoaError(.fileWriteUnknown)
+        },
+        restartCodex: { calls.append("restart") }
+      )
+    )
+    XCTAssertEqual(calls, ["ensure", "sync", "patch"])
   }
 
   func testStatusSymbols() {
