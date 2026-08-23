@@ -41,7 +41,7 @@ enum DoctorCollector {
     inputs.grokOAuthInstalled = grokInstalled
     inputs.grokOAuthConfigured = GrokOAuthSession.status().configured
     inputs.claudeCodeInstalled = claudeCodeInstalled
-    inputs.claudeCodeConfigured = ClaudeCodeSession.status().configured
+    inputs.claudeCodeConfigured = claudeCodeInstalled && ClaudeCodeSession.status().configured
     return inputs
   }
 
