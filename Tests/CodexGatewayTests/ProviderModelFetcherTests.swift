@@ -72,14 +72,14 @@ final class ProviderModelFetcherTests: XCTestCase {
             ProviderModelFetcher.FetchError.claudeCodeSessionMissing.errorDescription?
                 .contains("fetch models") == true
         )
-        XCTAssertEqual(
-            ProviderModelFetcher.remapClaudeCodeAuthFailure(.unauthorized),
-            .claudeCodeSessionMissing
-        )
-        XCTAssertEqual(
-            ProviderModelFetcher.remapClaudeCodeAuthFailure(.http(500)),
-            .http(500)
-        )
+        if case .claudeCodeSessionMissing = ProviderModelFetcher.remapClaudeCodeAuthFailure(.unauthorized) {
+        } else {
+            XCTFail("401/403 in Claude Code mode should become a login hint")
+        }
+        if case .http(500) = ProviderModelFetcher.remapClaudeCodeAuthFailure(.http(500)) {
+        } else {
+            XCTFail("Non-auth fetch errors should stay unchanged")
+        }
     }
 
     func testParseOpenAIStyleModelsResponse() throws {
