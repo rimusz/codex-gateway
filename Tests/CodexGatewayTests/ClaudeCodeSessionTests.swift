@@ -113,6 +113,24 @@ final class ClaudeCodeSessionTests: XCTestCase {
     XCTAssertFalse(ClaudeCodeSession.looksLikeOAuthAccessToken(""))
   }
 
+  func testShouldProbeStatusOnlyWhenInstalledOrForced() {
+    let unused: [ProviderConfig] = [
+      ProviderConfig(
+        name: "deepseek",
+        display_name: "DeepSeek",
+        base_url: "https://api.deepseek.com",
+        api_key: "sk-test",
+        vision_model: nil
+      )
+    ]
+    let installed: [ProviderConfig] = [
+      ProviderPreset.claudeCode.providerConfig(apiKey: "")
+    ]
+    XCTAssertFalse(ClaudeCodeSession.shouldProbeStatus(providers: unused, force: false))
+    XCTAssertTrue(ClaudeCodeSession.shouldProbeStatus(providers: unused, force: true))
+    XCTAssertTrue(ClaudeCodeSession.shouldProbeStatus(providers: installed, force: false))
+  }
+
   func testConsoleKeyRejectionKeepsModesSeparate() {
     XCTAssertNil(ClaudeCodeSession.consoleKeyRejectionMessage(for: "sk-ant-test"))
     XCTAssertNil(ClaudeCodeSession.consoleKeyRejectionMessage(for: ""))

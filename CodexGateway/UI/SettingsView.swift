@@ -720,7 +720,7 @@ struct SettingsView: View {
           Text("Uses the local Claude Code / CLI login at runtime. No OAuth token is stored in providers.json.")
             .font(.caption)
             .foregroundStyle(.secondary)
-          Button("Recheck") { store.refreshClaudeCodeStatus() }
+          Button("Recheck") { store.refreshClaudeCodeStatus(force: true) }
             .controlSize(.small)
         } else if isCursor {
           cursorCredentialFields(
@@ -751,7 +751,7 @@ struct SettingsView: View {
       refreshCursorNodeProbe()
       cursorBridgeStatus = CursorBridgeRuntime.status
       if isClaudeCode {
-        store.refreshClaudeCodeStatus()
+        store.refreshClaudeCodeStatus(force: true)
       }
     }
   }
@@ -1066,7 +1066,7 @@ struct SettingsView: View {
           Text("Use Claude Code login — run `claude auth login` or Claude Code /login. CodexGateway reads the local session at runtime and does not store the token.")
             .font(.caption)
             .foregroundStyle(.secondary)
-          Button("Recheck") { store.refreshClaudeCodeStatus() }
+          Button("Recheck") { store.refreshClaudeCodeStatus(force: true) }
             .controlSize(.small)
         } else if preset.isManagedCursorBridge {
           cursorCredentialFields(keyHint: "Cursor API key (key_…)")
@@ -1132,7 +1132,7 @@ struct SettingsView: View {
         cursorBridgeStatus = CursorBridgeRuntime.status
       }
       if preset.authKind == .claudeCode {
-        store.refreshClaudeCodeStatus()
+        store.refreshClaudeCodeStatus(force: true)
       }
     }
   }

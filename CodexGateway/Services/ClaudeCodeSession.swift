@@ -38,6 +38,15 @@ enum ClaudeCodeSession {
     let configured: Bool
     let sourcePath: String
     let setupHint: String?
+
+    static func idle(sourcePath: String = ClaudeCodeSession.defaultCredentialsURL.path) -> Status {
+      Status(configured: false, sourcePath: sourcePath, setupHint: nil)
+    }
+  }
+
+  /// Keychain/file probe is only needed when Claude Code is installed or the user opens that sheet.
+  static func shouldProbeStatus(providers: [ProviderConfig], force: Bool) -> Bool {
+    force || providers.contains { $0.usesClaudeCodeAuth }
   }
 
   static func looksLikeOAuthAccessToken(_ token: String) -> Bool {

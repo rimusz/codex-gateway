@@ -22,7 +22,7 @@ final class SetupStore: ObservableObject {
   @Published var cursorNodeProbe = CursorBridge.NodeRequirement.snapshot(binaryPath: nil, versionDisplay: "")
   @Published var cursorBridgeStatus = CursorBridgeRuntime.status
   @Published var grokStatus = GrokOAuthSession.status()
-  @Published var claudeCodeStatus = ClaudeCodeSession.status()
+  @Published var claudeCodeStatus = ClaudeCodeSession.Status.idle()
 
   let settings = SettingsStore()
   private(set) var installedProvider: ProviderConfig?

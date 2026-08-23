@@ -25,11 +25,7 @@ final class SettingsStore: ObservableObject {
   /// when this is false and custom models exist we surface a hint.
   @Published private(set) var codexSignedIn = true
   /// Cached Claude Code login probe. Refreshed on Settings reload / Recheck, not during view layout.
-  @Published private(set) var claudeCodeStatus = ClaudeCodeSession.Status(
-    configured: false,
-    sourcePath: ClaudeCodeSession.defaultCredentialsURL.path,
-    setupHint: nil
-  )
+  @Published private(set) var claudeCodeStatus = ClaudeCodeSession.Status.idle()
 
   var usableProviders: [ProviderConfig] {
     ModelCatalog.sortedProviders(providers.filter { !$0.name.isEmpty })
@@ -68,7 +64,11 @@ final class SettingsStore: ObservableObject {
     refreshClaudeCodeStatus()
   }
 
-  func refreshClaudeCodeStatus() {
+  func refreshClaudeCodeStatus(force: Bool = false) {
+    guard ClaudeCodeSession.shouldProbeStatus(providers: providers, force: force) else {
+      claudeCodeStatus = .idle()
+      return
+    }
     claudeCodeStatus = ClaudeCodeSession.status()
   }
 
