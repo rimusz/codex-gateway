@@ -106,6 +106,26 @@ final class ClaudeCodeSessionTests: XCTestCase {
     XCTAssertTrue(status.setupHint?.contains("expired") == true)
   }
 
+  func testLoadUsableSessionRejectsConsoleKeyFixture() {
+    let missing = credsURL("missing.json")
+    XCTAssertNil(
+      ClaudeCodeSession.loadUsableSession(
+        credentialsURL: missing,
+        legacyURL: missing,
+        environment: ["CLAUDE_CODE_OAUTH_TOKEN": "sk-ant-test"],
+        readKeychain: { nil }
+      )
+    )
+    let status = ClaudeCodeSession.status(
+      credentialsURL: missing,
+      legacyURL: missing,
+      environment: ["CLAUDE_CODE_OAUTH_TOKEN": "sk-ant-test"],
+      readKeychain: { nil }
+    )
+    XCTAssertFalse(status.configured)
+    XCTAssertTrue(status.setupHint?.contains("Console") == true)
+  }
+
   func testLooksLikeOAuthAccessToken() {
     XCTAssertTrue(ClaudeCodeSession.looksLikeOAuthAccessToken("sk-ant-oat-fake"))
     XCTAssertTrue(ClaudeCodeSession.looksLikeOAuthAccessToken("  SK-ANT-OAT01-fake  "))

@@ -123,7 +123,7 @@ enum ClaudeCodeSession {
       legacyURL: legacyURL,
       environment: environment,
       readKeychain: readKeychain
-    ), !session.isExpired else {
+    ), !session.isExpired, session.looksLikeOAuthAccessToken else {
       return nil
     }
     return session
@@ -160,6 +160,13 @@ enum ClaudeCodeSession {
         configured: false,
         sourcePath: credentialsURL.path,
         setupHint: "Claude Code login expired. Run `\(loginCommand)` in Terminal."
+      )
+    }
+    if let session, !session.looksLikeOAuthAccessToken {
+      return Status(
+        configured: false,
+        sourcePath: credentialsURL.path,
+        setupHint: "The local credential is not a Claude Code OAuth token. Run `\(loginCommand)` — do not use an Anthropic Console API key here."
       )
     }
     if session != nil {
