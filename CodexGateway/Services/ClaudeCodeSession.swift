@@ -164,7 +164,7 @@ enum ClaudeCodeSession {
   }
 
   static func missingSessionMessage() -> String {
-    "Claude Code is not signed in. Run `\(loginCommand)` in Terminal, then fetch models again."
+    "Claude Code is not signed in. Run `\(loginCommand)` in Terminal, then try again."
   }
 
   /// Console API-key field must not accept a Claude Code / claude.ai OAuth token.

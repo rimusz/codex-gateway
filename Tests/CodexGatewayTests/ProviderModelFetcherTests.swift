@@ -68,6 +68,18 @@ final class ProviderModelFetcherTests: XCTestCase {
             ProviderModelFetcher.FetchError.claudeCodeSessionMissing.errorDescription?
                 .contains("claude auth login") == true
         )
+        XCTAssertFalse(
+            ProviderModelFetcher.FetchError.claudeCodeSessionMissing.errorDescription?
+                .contains("fetch models") == true
+        )
+        XCTAssertEqual(
+            ProviderModelFetcher.remapClaudeCodeAuthFailure(.unauthorized),
+            .claudeCodeSessionMissing
+        )
+        XCTAssertEqual(
+            ProviderModelFetcher.remapClaudeCodeAuthFailure(.http(500)),
+            .http(500)
+        )
     }
 
     func testParseOpenAIStyleModelsResponse() throws {

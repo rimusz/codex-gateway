@@ -167,6 +167,12 @@ enum ProviderModelFetcher {
     return ClinePassCatalog.sortedAlphabetically(models)
   }
 
+  /// Claude Code login failures should never ask the user to check an API key.
+  static func remapClaudeCodeAuthFailure(_ error: FetchError) -> FetchError {
+    if case .unauthorized = error { return .claudeCodeSessionMissing }
+    return error
+  }
+
   /// Fetches models for an installed provider, routing Cline Pass / Grok OAuth to their catalogs.
   static func fetch(for provider: ProviderConfig) async throws -> [FetchedModel] {
     if provider.usesGrokOAuth
@@ -180,11 +186,15 @@ enum ProviderModelFetcher {
       guard let token = ClaudeCodeSession.loadUsableSession()?.accessToken, !token.isEmpty else {
         throw FetchError.claudeCodeSessionMissing
       }
-      return try await fetch(
-        baseURL: provider.base_url.isEmpty ? ProviderPreset.claudeCode.baseURL : provider.base_url,
-        apiKey: token,
-        authKind: .claudeCode
-      )
+      do {
+        return try await fetch(
+          baseURL: provider.base_url.isEmpty ? ProviderPreset.claudeCode.baseURL : provider.base_url,
+          apiKey: token,
+          authKind: .claudeCode
+        )
+      } catch let error as FetchError {
+        throw remapClaudeCodeAuthFailure(error)
+      }
     }
     return try await fetch(
       baseURL: provider.base_url,
