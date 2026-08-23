@@ -286,7 +286,7 @@ extension ProviderConfig {
   @discardableResult
   func applyUpstreamAuth(to request: inout URLRequest) -> Bool {
     if usesClaudeCodeAuth {
-      guard let token = ClaudeCodeSession.loadSession()?.accessToken, !token.isEmpty else {
+      guard let token = ClaudeCodeSession.loadUsableSession()?.accessToken, !token.isEmpty else {
         return false
       }
       ProviderAuth.apply(to: &request, apiKey: token, kind: .claudeCode)

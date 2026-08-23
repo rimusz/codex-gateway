@@ -102,6 +102,24 @@ enum ClaudeCodeSession {
     return nil
   }
 
+  /// Live token for upstream calls. Expired sessions are treated as missing.
+  static func loadUsableSession(
+    credentialsURL: URL = defaultCredentialsURL,
+    legacyURL: URL = legacyCredentialsURL,
+    environment: [String: String] = ProcessInfo.processInfo.environment,
+    readKeychain: () -> Data? = { readMacOSKeychain() }
+  ) -> Session? {
+    guard let session = loadSession(
+      credentialsURL: credentialsURL,
+      legacyURL: legacyURL,
+      environment: environment,
+      readKeychain: readKeychain
+    ), !session.isExpired else {
+      return nil
+    }
+    return session
+  }
+
   static func hasCachedCredentials(
     credentialsURL: URL = defaultCredentialsURL,
     legacyURL: URL = legacyCredentialsURL,

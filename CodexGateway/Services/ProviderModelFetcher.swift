@@ -177,7 +177,7 @@ enum ProviderModelFetcher {
       return try await fetchClinePassRecommended()
     }
     if provider.usesClaudeCodeAuth {
-      guard let token = ClaudeCodeSession.loadSession()?.accessToken, !token.isEmpty else {
+      guard let token = ClaudeCodeSession.loadUsableSession()?.accessToken, !token.isEmpty else {
         throw FetchError.claudeCodeSessionMissing
       }
       return try await fetch(

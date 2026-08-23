@@ -69,6 +69,29 @@ final class ClaudeCodeSessionTests: XCTestCase {
     XCTAssertEqual(session?.accessToken, "sk-ant-oat-keychain")
   }
 
+  func testLoadUsableSessionRejectsExpiredFixture() throws {
+    let expired = Date().addingTimeInterval(-60).timeIntervalSince1970 * 1000
+    let file = credsURL()
+    try Data(#"{"claudeAiOauth":{"accessToken":"sk-ant-oat-fake","expiresAt":\#(expired)}}"#.utf8).write(to: file)
+    let missing = credsURL("legacy.json")
+    XCTAssertNotNil(
+      ClaudeCodeSession.loadSession(
+        credentialsURL: file,
+        legacyURL: missing,
+        environment: [:],
+        readKeychain: { nil }
+      )
+    )
+    XCTAssertNil(
+      ClaudeCodeSession.loadUsableSession(
+        credentialsURL: file,
+        legacyURL: missing,
+        environment: [:],
+        readKeychain: { nil }
+      )
+    )
+  }
+
   func testStatusExpiredSession() throws {
     let expired = Date().addingTimeInterval(-60).timeIntervalSince1970 * 1000
     let file = credsURL()
