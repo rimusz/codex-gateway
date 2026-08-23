@@ -7,13 +7,16 @@ enum ProviderAuthKind: String, Codable, Sendable {
   case cursorBridge = "cursor_bridge"
   /// Claude OpenAI-compat + Models API: Bearer, `x-api-key`, and `anthropic-version`.
   case anthropic = "anthropic"
+  /// Claude Code / claude.ai OAuth: Bearer + `anthropic-beta: oauth-2025-04-20` (no `x-api-key`).
+  case claudeCode = "claude_code"
 }
 
-/// Shared upstream auth headers. Anthropic `GET {base}/models` (host path `/v1/models`)
-/// and the native API require `x-api-key` + `anthropic-version`; OpenAI-compat chat
-/// also accepts Bearer.
+/// Shared upstream auth headers. Anthropic Console keys use `x-api-key` +
+/// `anthropic-version`. Claude Code OAuth tokens (`sk-ant-oat…`) use Bearer +
+/// `anthropic-beta: oauth-2025-04-20` against the same OpenAI-compat base.
 enum ProviderAuth {
   static let anthropicAPIVersion = "2023-06-01"
+  static let claudeCodeOAuthBeta = "oauth-2025-04-20"
 
   static func apply(
     to request: inout URLRequest,
@@ -23,9 +26,15 @@ enum ProviderAuth {
     let key = apiKey.trimmingCharacters(in: .whitespacesAndNewlines)
     guard !key.isEmpty else { return }
     request.setValue("Bearer \(key)", forHTTPHeaderField: "Authorization")
-    if kind == .anthropic {
+    switch kind {
+    case .anthropic:
       request.setValue(key, forHTTPHeaderField: "x-api-key")
       request.setValue(anthropicAPIVersion, forHTTPHeaderField: "anthropic-version")
+    case .claudeCode:
+      request.setValue(anthropicAPIVersion, forHTTPHeaderField: "anthropic-version")
+      request.setValue(claudeCodeOAuthBeta, forHTTPHeaderField: "anthropic-beta")
+    default:
+      break
     }
   }
 }
@@ -266,11 +275,24 @@ extension ProviderConfig {
 
   var usesAnthropicAuth: Bool { resolvedAuthKind == .anthropic }
 
+  var usesClaudeCodeAuth: Bool { resolvedAuthKind == .claudeCode }
+
   var usesCursorBridge: Bool {
     resolvedAuthKind == .cursorBridge || name == ProviderPreset.cursor.providerID
   }
 
-  func applyUpstreamAuth(to request: inout URLRequest) {
+  /// Applies Console / generic Bearer headers from `api_key`, or the live Claude Code session.
+  /// Returns `false` when Claude Code mode is selected but no local login is available.
+  @discardableResult
+  func applyUpstreamAuth(to request: inout URLRequest) -> Bool {
+    if usesClaudeCodeAuth {
+      guard let token = ClaudeCodeSession.loadSession()?.accessToken, !token.isEmpty else {
+        return false
+      }
+      ProviderAuth.apply(to: &request, apiKey: token, kind: .claudeCode)
+      return true
+    }
     ProviderAuth.apply(to: &request, apiKey: api_key, kind: resolvedAuthKind)
+    return true
   }
 }

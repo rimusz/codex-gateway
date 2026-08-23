@@ -10,6 +10,7 @@ enum DoctorCollector {
     let models = ModelCatalog.shared.loadCatalog().models
     let cursorInstalled = providers.contains { $0.usesCursorBridge }
     let grokInstalled = providers.contains { $0.usesGrokOAuth }
+    let claudeCodeInstalled = providers.contains { $0.usesClaudeCodeAuth }
     let configApplied = CodexConfig.hasManagedBlock()
     let configContent = try? String(contentsOfFile: Paths.codexConfig, encoding: .utf8)
 
@@ -39,6 +40,8 @@ enum DoctorCollector {
 
     inputs.grokOAuthInstalled = grokInstalled
     inputs.grokOAuthConfigured = GrokOAuthSession.status().configured
+    inputs.claudeCodeInstalled = claudeCodeInstalled
+    inputs.claudeCodeConfigured = ClaudeCodeSession.status().configured
     return inputs
   }
 

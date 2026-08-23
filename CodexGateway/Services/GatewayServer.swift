@@ -135,7 +135,16 @@ final class GatewayServer {
       var urlRequest = URLRequest(url: url)
       urlRequest.httpMethod = "POST"
       urlRequest.setValue("application/json", forHTTPHeaderField: "Content-Type")
-      provider.applyUpstreamAuth(to: &urlRequest)
+      guard provider.applyUpstreamAuth(to: &urlRequest) else {
+        self.json(response, [
+          "error": [
+            "message": ClaudeCodeSession.missingSessionMessage(),
+            "type": "authentication_error",
+            "code": 401
+          ] as [String: Any]
+        ], status: 401)
+        return
+      }
       urlRequest.httpBody = try? JSONSerialization.data(withJSONObject: chatBody)
 
       if stream {
@@ -385,7 +394,16 @@ final class GatewayServer {
         var urlRequest = URLRequest(url: URL(string: "\(resolved.provider.base_url.trimmingCharacters(in: CharacterSet(charactersIn: "/")))/chat/completions")!)
         urlRequest.httpMethod = "POST"
         urlRequest.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        resolved.provider.applyUpstreamAuth(to: &urlRequest)
+        guard resolved.provider.applyUpstreamAuth(to: &urlRequest) else {
+          self.json(response, [
+            "error": [
+              "message": ClaudeCodeSession.missingSessionMessage(),
+              "type": "authentication_error",
+              "code": 401
+            ] as [String: Any]
+          ], status: 401)
+          return
+        }
         urlRequest.httpBody = try? JSONSerialization.data(withJSONObject: chat)
         URLSession.shared.dataTask(with: urlRequest) { data, urlResponse, error in
           guard let data else {

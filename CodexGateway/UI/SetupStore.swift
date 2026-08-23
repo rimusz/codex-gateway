@@ -22,6 +22,7 @@ final class SetupStore: ObservableObject {
   @Published var cursorNodeProbe = CursorBridge.NodeRequirement.snapshot(binaryPath: nil, versionDisplay: "")
   @Published var cursorBridgeStatus = CursorBridgeRuntime.status
   @Published var grokStatus = GrokOAuthSession.status()
+  @Published var claudeCodeStatus = ClaudeCodeSession.status()
 
   let settings = SettingsStore()
   private(set) var installedProvider: ProviderConfig?
@@ -60,6 +61,9 @@ final class SetupStore: ObservableObject {
       }
       if preset.authKind == .grokOAuth {
         refreshGrokStatus()
+      }
+      if preset.authKind == .claudeCode {
+        refreshClaudeCodeStatus()
       }
     }
   }
@@ -133,6 +137,10 @@ final class SetupStore: ObservableObject {
 
   func refreshGrokStatus() {
     grokStatus = GrokOAuthSession.status()
+  }
+
+  func refreshClaudeCodeStatus() {
+    claudeCodeStatus = ClaudeCodeSession.status()
   }
 
   func connectPrimaryTitle() -> String {
@@ -257,7 +265,7 @@ final class SetupStore: ObservableObject {
       try settings.installCursorPreset(apiKey: key, seedModels: false, patchConfig: false)
       return
     }
-    if preset.authKind == .grokOAuth {
+    if preset.authKind == .grokOAuth || preset.authKind == .claudeCode {
       try settings.installPreset(preset, apiKey: "", seedModels: false, patchConfig: false)
       return
     }
@@ -265,6 +273,9 @@ final class SetupStore: ObservableObject {
       let key = apiKey.trimmingCharacters(in: .whitespacesAndNewlines)
       guard !key.isEmpty else {
         throw SettingsError.validation("An API key is required for \(preset.displayName).")
+      }
+      if let rejected = ClaudeCodeSession.consoleKeyRejectionMessage(for: key) {
+        throw SettingsError.validation(rejected)
       }
       try settings.installPreset(preset, apiKey: key, seedModels: false, patchConfig: false)
       return

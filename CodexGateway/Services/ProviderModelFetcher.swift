@@ -15,6 +15,7 @@ enum ProviderModelFetcher {
   enum FetchError: LocalizedError {
     case invalidURL
     case unauthorized
+    case claudeCodeSessionMissing
     case http(Int)
     case empty
     case transport(String)
@@ -24,6 +25,7 @@ enum ProviderModelFetcher {
       switch self {
       case .invalidURL: return "The base URL is not a valid endpoint."
       case .unauthorized: return "Unauthorized - check the API key for this provider."
+      case .claudeCodeSessionMissing: return ClaudeCodeSession.missingSessionMessage()
       case .http(let code): return "The provider returned HTTP \(code)."
       case .empty: return "The provider returned no models."
       case .transport(let message): return message
@@ -86,7 +88,7 @@ enum ProviderModelFetcher {
     request.setValue("application/json", forHTTPHeaderField: "Accept")
     let key = apiKey.trimmingCharacters(in: .whitespacesAndNewlines)
     ProviderAuth.apply(to: &request, apiKey: key, kind: authKind)
-    if !key.isEmpty {
+    if !key.isEmpty, authKind != .claudeCode {
       request.setValue(key, forHTTPHeaderField: "api-key")
     }
     return request
@@ -173,6 +175,16 @@ enum ProviderModelFetcher {
     }
     if ProviderPreset.matching(providerID: provider.name)?.supportsLiveCatalogRefresh == true {
       return try await fetchClinePassRecommended()
+    }
+    if provider.usesClaudeCodeAuth {
+      guard let token = ClaudeCodeSession.loadSession()?.accessToken, !token.isEmpty else {
+        throw FetchError.claudeCodeSessionMissing
+      }
+      return try await fetch(
+        baseURL: provider.base_url.isEmpty ? ProviderPreset.claudeCode.baseURL : provider.base_url,
+        apiKey: token,
+        authKind: .claudeCode
+      )
     }
     return try await fetch(
       baseURL: provider.base_url,

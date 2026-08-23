@@ -2,7 +2,7 @@
 
 **Use any OpenAI-compatible model in Codex Desktop and Codex CLI — from a macOS menu bar app.**
 
-Codex Desktop and the Codex CLI normally talk only to OpenAI's own models. CodexGateway sits quietly in your menu bar and runs a tiny local gateway that lets both route to **third-party providers** (Cursor via a local bridge, Anthropic/Claude, xAI API key, Grok OAuth via the official Grok CLI, DeepSeek, OpenRouter, Z.ai, Kimi, Qwen, MiniMax, Cline Pass, …) or **local models** (Ollama) — while still passing native GPT/ChatGPT requests straight through to OpenAI. You configure providers and models in a native **Settings** window; Desktop and CLI then share the same gateway via `~/.codex/config.toml`.
+Codex Desktop and the Codex CLI normally talk only to OpenAI's own models. CodexGateway sits quietly in your menu bar and runs a tiny local gateway that lets both route to **third-party providers** (Cursor via a local bridge, Anthropic Console API key or Claude Code login, xAI API key, Grok OAuth via the official Grok CLI, DeepSeek, OpenRouter, Z.ai, Kimi, Qwen, MiniMax, Cline Pass, …) or **local models** (Ollama) — while still passing native GPT/ChatGPT requests straight through to OpenAI. You configure providers and models in a native **Settings** window; Desktop and CLI then share the same gateway via `~/.codex/config.toml`.
 
 ![CodexGateway Settings and menu bar](docs/screenshots/settings-and-menu.png)
 
@@ -40,7 +40,7 @@ Codex Desktop          Codex CLI
 - **No Codex sign-in needed for local-only use** (e.g. Ollama); sign-in is only required for native GPT/ChatGPT
 - **First-run setup** — when the catalog is empty, a three-step window (choose provider → connect → pick models) writes Codex config and offers Restart Codex
 - **Menu bar status** with live gateway state + port; Cursor Bridge address appears on a second line only when the Cursor provider is installed; plus native Settings, Doctor, and About windows
-- **Doctor** — menu **Doctor…** (⌘D) or Settings toolbar: checks the local gateway, Codex config/sign-in, Node.js (for Cursor), Cursor API key/sidecar, and Grok OAuth
+- **Doctor** — menu **Doctor…** (⌘D) or Settings toolbar: checks the local gateway, Codex config/sign-in, Node.js (for Cursor), Cursor API key/sidecar, Grok OAuth, and Claude Code login
 - **Open at Login** — optional menu-bar toggle so CodexGateway starts with macOS
 - **Friendly model names** auto-generated from provider model IDs (editable)
 - **Loopback-only gateway** — no management endpoints over HTTP, nothing reachable from the LAN
@@ -82,7 +82,7 @@ Existing installs upgrade smoothly:
 2. If you have no providers or models yet, **Set Up CodexGateway** opens: pick a provider, connect (API key / Grok login / Cursor key as needed), select models, then Finish. That writes Codex's config and offers **Restart Codex**. Skip or Back before Finish does not keep a half-installed provider; Skip also hides the window until the next launch (or until the catalog is empty again).
 3. (Optional) Menu bar → **Open at Login** so the gateway starts automatically after reboot.
 4. To add more later, open **Settings** (menu bar → Settings, or ⌘,).
-5. Open **Add Provider**, install a provider preset, and enter its API key (skipped for Ollama and **xAI Grok (OAuth)** — OAuth uses `grok login` / `~/.grok/auth.json`).
+5. Open **Add Provider**, install a provider preset, and enter its API key (skipped for Ollama, **xAI Grok (OAuth)** — `grok login` / `~/.grok/auth.json` — and **Anthropic (Claude Code)** — local Claude Code / CLI login).
 6. Click **Add model** on the provider row and pick the models you want (Grok OAuth seeds a suggested model on install).
 7. Restart Codex when prompted (**Restart Codex**, ⌘R) so Desktop/CLI reload config.
 8. Pick a model in **Codex Desktop** (model picker) or the **Codex CLI** — your custom models are available in both.
@@ -97,9 +97,14 @@ Everything lives in the **Settings** window — no browser needed. **Add Provide
 
 ### Providers
 
-Install a built-in preset from **Add Provider** (**Anthropic (Claude), Z.ai, Kimi, Qwen, Xiaomi MiMo, Cline Pass, MiniMax, DeepSeek, xAI Grok (API), xAI Grok (OAuth), OpenRouter, Ollama**) or **Add custom provider**. You're prompted for an API key when the provider needs one. Provider rows show a compact model count and status.
+Install a built-in preset from **Add Provider** (**Anthropic (Claude), Anthropic (Claude Code), Z.ai, Kimi, Qwen, Xiaomi MiMo, Cline Pass, MiniMax, DeepSeek, xAI Grok (API), xAI Grok (OAuth), OpenRouter, Ollama**) or **Add custom provider**. You're prompted for an API key when the provider needs one. Provider rows show a compact model count and status.
 
-**Anthropic (Claude)** uses Anthropic's OpenAI-compatible API at `https://api.anthropic.com/v1` with a Claude API key from [console.anthropic.com](https://console.anthropic.com/settings/keys). Settings fetches models with `GET /models` against that base (host path `/v1/models`, not `/v1/v1/models`) and the gateway forwards chat to `/chat/completions` (no native Messages-API translator). Requests send Bearer plus `x-api-key` and `anthropic-version`.
+**Anthropic (Claude) vs Anthropic (Claude Code):** keep them separate — two auth modes, one Claude/Anthropic family. Both talk to Anthropic's OpenAI-compatible API at `https://api.anthropic.com/v1` (`GET {base}/models` → host path `/v1/models`, not `/v1/v1/models`; chat via `/chat/completions`; no native Messages-API translator).
+
+- **Anthropic (Claude)** uses an Anthropic Console API key from [console.anthropic.com](https://console.anthropic.com/settings/keys). The key is stored in `providers.json`. Requests send Bearer plus `x-api-key` and `anthropic-version`. Do not paste a Claude Code / claude.ai OAuth token into this field.
+- **Anthropic (Claude Code)** uses **Use Claude Code login**: CodexGateway reads the local Claude Code / CLI session at request time (`CLAUDE_CODE_OAUTH_TOKEN`, `~/.claude/.credentials.json`, `~/.claude.json`, or the macOS Keychain item `Claude Code-credentials`). No OAuth token is stored in `providers.json` or typed into Settings. Requests send Bearer plus `anthropic-version` and `anthropic-beta: oauth-2025-04-20` (no `x-api-key`). On the Mac, run `claude auth login` or Claude Code `/login` first. Keychain lookup is macOS-only.
+
+Both presets can be installed side by side. Model names are labeled **(API)** vs **(OAuth)** so you can tell them apart in the Codex picker.
 
 **xAI Grok (API) vs xAI Grok (OAuth):** keep them separate. **xAI Grok (API)** uses an API key against `api.x.ai` and fetches models from that API. **xAI Grok (OAuth)** uses the official Grok CLI session (`npm i -g @xai-official/grok` then `grok login`), forwards through xAI’s CLI chat proxy, and fetches the model list from the CLI OAuth catalog (`/models-v2`) — no key in `providers.json`. Both can be installed side by side.
 
@@ -116,7 +121,8 @@ Display names are auto-formatted into friendly, provider-prefixed names — Clin
 | `grok-4.5` (xAI API) | **xAI Grok 4.5 (API)** |
 | `grok-4.5` (xAI OAuth) | **xAI Grok 4.5 (OAuth)** |
 | `deepseek/deepseek-chat-v3-0324` (OpenRouter) | **OpenRouter DeepSeek Chat V3 0324** |
-| `claude-sonnet-5` (Anthropic) | **Anthropic Claude Sonnet 5** |
+| `claude-sonnet-5` (Anthropic Console) | **Anthropic Claude Sonnet 5 (API)** |
+| `claude-sonnet-5` (Claude Code) | **Anthropic Claude Sonnet 5 (OAuth)** |
 
 Doubled vendor prefixes are collapsed, and any name you edit yourself is preserved.
 

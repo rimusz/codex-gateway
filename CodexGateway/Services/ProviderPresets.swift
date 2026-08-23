@@ -10,6 +10,7 @@ enum ProviderPreset: String, CaseIterable, Identifiable {
   case minimax
   case deepseek
   case anthropic
+  case claudeCode
   case xai
   case grokOAuth
   case cursor
@@ -28,6 +29,7 @@ enum ProviderPreset: String, CaseIterable, Identifiable {
     case .minimax: return "MiniMax"
     case .deepseek: return "DeepSeek"
     case .anthropic: return "Anthropic (Claude)"
+    case .claudeCode: return "Anthropic (Claude Code)"
     case .xai: return "xAI Grok (API)"
     case .grokOAuth: return "xAI Grok (OAuth)"
     case .cursor: return "Cursor"
@@ -46,6 +48,7 @@ enum ProviderPreset: String, CaseIterable, Identifiable {
     case .minimax: return "minimax"
     case .deepseek: return "deepseek"
     case .anthropic: return "anthropic"
+    case .claudeCode: return "claude-code"
     case .xai: return "xai"
     case .grokOAuth: return "grok-oauth"
     case .cursor: return "cursor"
@@ -64,6 +67,7 @@ enum ProviderPreset: String, CaseIterable, Identifiable {
     case .minimax: return "https://api.minimax.io/v1"
     case .deepseek: return "https://api.deepseek.com"
     case .anthropic: return "https://api.anthropic.com/v1"
+    case .claudeCode: return "https://api.anthropic.com/v1"
     case .xai: return "https://api.x.ai/v1"
     case .grokOAuth: return GrokOAuthClient.defaultBaseURL
     case .cursor: return CursorBridge.managedEndpoint.baseURL
@@ -83,7 +87,7 @@ enum ProviderPreset: String, CaseIterable, Identifiable {
 
   var requiresAPIKeyPrompt: Bool {
     switch self {
-    case .ollama, .grokOAuth: return false
+    case .ollama, .grokOAuth, .claudeCode: return false
     default: return true
     }
   }
@@ -93,8 +97,14 @@ enum ProviderPreset: String, CaseIterable, Identifiable {
     case .grokOAuth: return .grokOAuth
     case .cursor: return .cursorBridge
     case .anthropic: return .anthropic
+    case .claudeCode: return .claudeCode
     default: return .apiKey
     }
+  }
+
+  /// Settings install sheet: API-key presets, Grok OAuth, and Claude Code login.
+  var showsInstallSheet: Bool {
+    requiresAPIKeyPrompt || authKind == .grokOAuth || authKind == .claudeCode
   }
 
   /// True when this preset is the CodexGateway-managed Cursor sidecar (local secret + process lifecycle).
@@ -117,6 +127,7 @@ enum ProviderPreset: String, CaseIterable, Identifiable {
     case .minimax: return "minimax-m2.5"
     case .deepseek: return "deepseek-v4-pro"
     case .anthropic: return "claude-sonnet-5"
+    case .claudeCode: return "claude-sonnet-5"
     case .xai: return "grok-4"
     case .grokOAuth: return "grok-4.5"
     case .cursor: return "composer-2.5"
@@ -180,6 +191,16 @@ enum ProviderPreset: String, CaseIterable, Identifiable {
         auth_kind: ProviderAuthKind.cursorBridge.rawValue
       )
     }
+    if authKind == .claudeCode {
+      return ProviderConfig(
+        name: providerID,
+        display_name: displayName,
+        base_url: baseURL,
+        api_key: "",
+        vision_model: nil,
+        auth_kind: authKind.rawValue
+      )
+    }
     let key = apiKey.trimmingCharacters(in: .whitespacesAndNewlines)
     return ProviderConfig(
       name: providerID,
@@ -216,7 +237,8 @@ enum ProviderPreset: String, CaseIterable, Identifiable {
     case .xiaomiMiMo: return "Xiaomi MiMo V2.5 Pro"
     case .minimax: return "MiniMax M2.5"
     case .deepseek: return "DeepSeek V4 Pro"
-    case .anthropic: return "Anthropic Claude Sonnet 5"
+    case .anthropic: return "Anthropic Claude Sonnet 5 (API)"
+    case .claudeCode: return "Anthropic Claude Sonnet 5 (OAuth)"
     case .xai: return "xAI Grok 4 (API)"
     case .grokOAuth: return "xAI Grok 4.5 (OAuth)"
     case .cursor: return "Cursor Composer 2.5"

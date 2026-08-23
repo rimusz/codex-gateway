@@ -235,6 +235,15 @@ final class SetupFlowTests: XCTestCase {
                 cursorNodeMeetsMinimum: false
             )
         )
+        XCTAssertTrue(
+            SetupConnectValidation.isReady(
+                selection: .preset(.claudeCode),
+                apiKey: "",
+                customName: "",
+                customBaseURL: "",
+                cursorNodeMeetsMinimum: false
+            )
+        )
         XCTAssertFalse(
             SetupConnectValidation.isReady(
                 selection: .preset(.cursor),

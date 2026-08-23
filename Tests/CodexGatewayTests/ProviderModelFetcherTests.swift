@@ -42,6 +42,31 @@ final class ProviderModelFetcherTests: XCTestCase {
         XCTAssertEqual(bearer.value(forHTTPHeaderField: "Authorization"), "Bearer sk-test")
         XCTAssertNil(bearer.value(forHTTPHeaderField: "x-api-key"))
         XCTAssertNil(bearer.value(forHTTPHeaderField: "anthropic-version"))
+
+        let oauth = try XCTUnwrap(
+            ProviderModelFetcher.modelsRequest(
+                baseURL: "https://api.anthropic.com/v1",
+                apiKey: "sk-ant-oat-fake",
+                authKind: .claudeCode
+            )
+        )
+        XCTAssertEqual(oauth.url?.absoluteString, "https://api.anthropic.com/v1/models")
+        XCTAssertEqual(oauth.value(forHTTPHeaderField: "Authorization"), "Bearer sk-ant-oat-fake")
+        XCTAssertNil(oauth.value(forHTTPHeaderField: "x-api-key"))
+        XCTAssertEqual(oauth.value(forHTTPHeaderField: "anthropic-beta"), "oauth-2025-04-20")
+        XCTAssertEqual(oauth.value(forHTTPHeaderField: "anthropic-version"), "2023-06-01")
+        XCTAssertNil(oauth.value(forHTTPHeaderField: "api-key"))
+    }
+
+    func testFetchErrorClaudeCodeSessionMissingUsesLoginHint() {
+        XCTAssertEqual(
+            ProviderModelFetcher.FetchError.claudeCodeSessionMissing.errorDescription,
+            ClaudeCodeSession.missingSessionMessage()
+        )
+        XCTAssertTrue(
+            ProviderModelFetcher.FetchError.claudeCodeSessionMissing.errorDescription?
+                .contains("claude auth login") == true
+        )
     }
 
     func testParseOpenAIStyleModelsResponse() throws {

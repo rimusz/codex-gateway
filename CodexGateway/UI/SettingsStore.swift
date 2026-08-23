@@ -102,6 +102,10 @@ final class SettingsStore: ObservableObject {
     }
 
     let existing = providers.first { $0.name == trimmedName }
+    if existing?.usesAnthropicAuth == true || trimmedName == ProviderPreset.anthropic.providerID,
+       let rejected = ClaudeCodeSession.consoleKeyRejectionMessage(for: apiKey) {
+      throw SettingsError.validation(rejected)
+    }
     try ModelCatalog.shared.upsertProvider(
       ProviderConfig(
         name: trimmedName,
@@ -203,6 +207,9 @@ final class SettingsStore: ObservableObject {
     seedModels: Bool = true,
     patchConfig: Bool = true
   ) throws {
+    if preset == .anthropic, let rejected = ClaudeCodeSession.consoleKeyRejectionMessage(for: apiKey) {
+      throw SettingsError.validation(rejected)
+    }
     let result = try PresetInstaller.install(
       preset,
       apiKey: apiKey,
@@ -223,6 +230,14 @@ final class SettingsStore: ObservableObject {
           change: .model
         )
       }
+      return
+    }
+    if preset.authKind == .claudeCode {
+      let status = ClaudeCodeSession.status()
+      let sessionNote = status.configured
+        ? "Claude Code login connected."
+        : (status.setupHint ?? "Run `claude auth login` in Terminal.")
+      statusMessage = "Installed \(preset.displayName). \(sessionNote) Add models from the provider row."
       return
     }
     if preset.isManagedCursorBridge {

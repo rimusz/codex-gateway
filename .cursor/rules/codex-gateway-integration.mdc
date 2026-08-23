@@ -8,7 +8,7 @@ alwaysApply: false
 
 ## Services
 
-- `GatewayServer` — HTTP routing on `127.0.0.1:8765`, third-party model proxy, OpenAI pass-through.
+- `GatewayServer` — HTTP routing on `127.0.0.1:8765`, third-party model proxy, OpenAI pass-through. Anthropic Console (`auth_kind: anthropic`) and Claude Code login (`auth_kind: claude_code`) both use `https://api.anthropic.com/v1` OpenAI-compat `/chat/completions` and `/models`; Claude Code tokens come from `ClaudeCodeSession` at request time (never stored).
 - `LoopbackHTTPServer` — Network.framework HTTP server, SSE support.
 - `Translator` — Responses ↔ Chat Completions translation, namespace tool mapping, think-block stripping.
 - `ModelCatalog` — `~/.codexgateway/custom_model_catalog.json` + `providers.json`.

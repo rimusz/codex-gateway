@@ -339,6 +339,11 @@ struct SettingsView: View {
       let auth = status.configured ? "Connected" : "Not signed in"
       return "Grok CLI OAuth · \(auth) · fetches model catalog"
     }
+    if preset.authKind == .claudeCode {
+      let status = ClaudeCodeSession.status()
+      let auth = status.configured ? "Connected" : "Not signed in"
+      return "Claude Code login · \(auth) · fetches model list"
+    }
     if preset.supportsLiveCatalogRefresh {
       return "Fetches live Cline Pass catalog"
     }
@@ -364,6 +369,11 @@ struct SettingsView: View {
       return highlight
         ? "Fetch the Cline Pass model list before adding a model (no API key required)."
         : "Refresh the Cline Pass model list (no API key required)."
+    }
+    if provider.usesClaudeCodeAuth {
+      return highlight
+        ? "Fetch models using your Claude Code login before adding a model."
+        : "Refresh the Claude Code model list."
     }
     return highlight
       ? "Fetch the provider's model list before adding a model."
@@ -498,6 +508,19 @@ struct SettingsView: View {
           .font(.caption2)
           .foregroundStyle(.orange)
           .help(status.setupHint ?? "Run `grok login` in Terminal")
+      }
+    } else if provider.usesClaudeCodeAuth {
+      let status = ClaudeCodeSession.status()
+      if status.configured {
+        Label("Claude Code", systemImage: "person.badge.key.fill")
+          .font(.caption2)
+          .foregroundStyle(.green)
+          .help("Uses the local Claude Code login (not stored in providers.json)")
+      } else {
+        Label("Sign in", systemImage: "person.badge.key")
+          .font(.caption2)
+          .foregroundStyle(.orange)
+          .help(status.setupHint ?? "Run `claude auth login` in Terminal")
       }
     } else if provider.usesCursorBridge {
       if CursorBridgeKeychain.hasAPIKey() {
@@ -642,13 +665,15 @@ struct SettingsView: View {
   private var providerEditorSheet: some View {
     let isGrokOAuth = editingProvider?.usesGrokOAuth == true
       || providerName == ProviderPreset.grokOAuth.providerID
+    let isClaudeCode = editingProvider?.usesClaudeCodeAuth == true
+      || providerName == ProviderPreset.claudeCode.providerID
     let isCursor = isCursorProviderEditor
-    let isCustomNew = editingProvider == nil && !isCursor && !isGrokOAuth
+    let isCustomNew = editingProvider == nil && !isCursor && !isGrokOAuth && !isClaudeCode
     return VStack(alignment: .leading, spacing: 0) {
       sheetHeader(
         icon: "server.rack",
         title: editingProvider == nil ? "Add provider" : "Edit provider",
-        subtitle: providerEditorSubtitle(isGrokOAuth: isGrokOAuth, isCursor: isCursor)
+        subtitle: providerEditorSubtitle(isGrokOAuth: isGrokOAuth, isClaudeCode: isClaudeCode, isCursor: isCursor)
       )
 
       Form {
@@ -672,9 +697,11 @@ struct SettingsView: View {
         Text(
           isGrokOAuth
             ? "CLI chat proxy base, e.g. https://cli-chat-proxy.grok.com/v1"
-            : (isCursor
-              ? "Managed local bridge (port \(CursorBridgeRuntime.managedPort))."
-              : "e.g. https://api.minimax.io/v1")
+            : (isClaudeCode
+              ? "OpenAI-compat Anthropic API, e.g. https://api.anthropic.com/v1"
+              : (isCursor
+                ? "Managed local bridge (port \(CursorBridgeRuntime.managedPort))."
+                : "e.g. https://api.minimax.io/v1"))
         )
           .font(.caption)
           .foregroundStyle(.secondary)
@@ -684,6 +711,13 @@ struct SettingsView: View {
           Text(status.configured ? "Grok CLI session connected" : (status.setupHint ?? "Not signed in"))
             .foregroundStyle(status.configured ? AnyShapeStyle(.secondary) : AnyShapeStyle(Color.orange))
           Text("No API key is stored in providers.json for this provider.")
+            .font(.caption)
+            .foregroundStyle(.secondary)
+        } else if isClaudeCode {
+          let status = ClaudeCodeSession.status()
+          Text(status.configured ? "Claude Code login connected" : (status.setupHint ?? "Not signed in"))
+            .foregroundStyle(status.configured ? AnyShapeStyle(.secondary) : AnyShapeStyle(Color.orange))
+          Text("Uses the local Claude Code / CLI login at runtime. No OAuth token is stored in providers.json.")
             .font(.caption)
             .foregroundStyle(.secondary)
         } else if isCursor {
@@ -723,9 +757,12 @@ struct SettingsView: View {
       || providerName == ProviderPreset.cursor.providerID
   }
 
-  private func providerEditorSubtitle(isGrokOAuth: Bool, isCursor: Bool) -> String {
+  private func providerEditorSubtitle(isGrokOAuth: Bool, isClaudeCode: Bool, isCursor: Bool) -> String {
     if isGrokOAuth {
       return "Uses the official Grok CLI session (~/.grok/auth.json)."
+    }
+    if isClaudeCode {
+      return "Uses Claude Code login (~/.claude or macOS Keychain)."
     }
     if isCursor {
       return "Managed Cursor OpenAI bridge — key stored under Application Support."
@@ -984,7 +1021,7 @@ struct SettingsView: View {
 
   private func installPreset(_ preset: ProviderPreset) {
     isAddProviderSectionExpanded = true
-    if preset.requiresAPIKeyPrompt || preset.authKind == .grokOAuth {
+    if preset.showsInstallSheet {
       presetAPIKey = ""
       installingPreset = preset
     } else {
@@ -1017,6 +1054,13 @@ struct SettingsView: View {
           Text("Install @xai-official/grok and run `grok login` (or `grok login --oauth`). Credentials stay in ~/.grok/auth.json.")
             .font(.caption)
             .foregroundStyle(.secondary)
+        } else if preset.authKind == .claudeCode {
+          let status = ClaudeCodeSession.status()
+          Text(status.configured ? "Claude Code login connected." : (status.setupHint ?? "Not signed in"))
+            .foregroundStyle(status.configured ? AnyShapeStyle(.primary) : AnyShapeStyle(Color.orange))
+          Text("Use Claude Code login — run `claude auth login` or Claude Code /login. CodexGateway reads the local session at runtime and does not store the token.")
+            .font(.caption)
+            .foregroundStyle(.secondary)
         } else if preset.isManagedCursorBridge {
           cursorCredentialFields(keyHint: "Cursor API key (key_…)")
           Text("Inference-only bridge: Codex keeps tool calling; Cursor returns assistant text via the local sidecar.")
@@ -1024,9 +1068,15 @@ struct SettingsView: View {
             .foregroundStyle(.secondary)
         } else {
           SecureField("API key", text: $presetAPIKey)
-          Text("Your key is stored locally in ~/.codexgateway/providers.json.")
-            .font(.caption)
-            .foregroundStyle(.secondary)
+          if preset == .anthropic {
+            Text("Anthropic Console API key. For Claude Code login, install Anthropic (Claude Code) instead — do not paste an OAuth token here.")
+              .font(.caption)
+              .foregroundStyle(.secondary)
+          } else {
+            Text("Your key is stored locally in ~/.codexgateway/providers.json.")
+              .font(.caption)
+              .foregroundStyle(.secondary)
+          }
         }
       }
       .formStyle(.grouped)
@@ -1045,13 +1095,17 @@ struct SettingsView: View {
             return
           }
           installingPreset = nil
-          if preset.authKind == .grokOAuth {
+          if preset.authKind == .grokOAuth || preset.authKind == .claudeCode {
             performInstall(preset, apiKey: "")
             return
           }
           let key = presetAPIKey.trimmingCharacters(in: .whitespacesAndNewlines)
           guard !key.isEmpty else {
             store.errorMessage = "An API key is required for \(preset.displayName)."
+            return
+          }
+          if let rejected = ClaudeCodeSession.consoleKeyRejectionMessage(for: key) {
+            store.errorMessage = rejected
             return
           }
           performInstall(preset, apiKey: key)
