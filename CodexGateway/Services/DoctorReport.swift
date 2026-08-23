@@ -16,6 +16,8 @@ struct DoctorInputs: Equatable, Sendable {
   var cursorBridgeReachable = false
   var grokOAuthInstalled = false
   var grokOAuthConfigured = false
+  var claudeCodeInstalled = false
+  var claudeCodeConfigured = false
 }
 
 struct DoctorCheck: Identifiable, Equatable, Sendable {
@@ -53,6 +55,7 @@ enum DoctorReport {
       nodeCheck(inputs),
       cursorCheck(inputs),
       grokOAuthCheck(inputs),
+      claudeCodeCheck(inputs),
     ]
   }
 
@@ -68,6 +71,9 @@ enum DoctorReport {
     }
     if inputs.grokOAuthInstalled {
       guard inputs.grokOAuthConfigured else { return false }
+    }
+    if inputs.claudeCodeInstalled {
+      guard inputs.claudeCodeConfigured else { return false }
     }
     return true
   }
@@ -87,6 +93,9 @@ enum DoctorReport {
     }
     if inputs.grokOAuthInstalled, !inputs.grokOAuthConfigured {
       return "Run grok login in Terminal, then re-run Doctor."
+    }
+    if inputs.claudeCodeInstalled, !inputs.claudeCodeConfigured {
+      return "Run \(ClaudeCodeSession.loginCommand) in Terminal, then re-run Doctor."
     }
     if !inputs.configApplied {
       return "Open Settings and click Update Gateway Config so Codex Desktop uses the local gateway."
@@ -257,6 +266,31 @@ enum DoctorReport {
       id: "grok-oauth",
       title: "Grok (OAuth)",
       detail: "Not connected. Run grok login in Terminal.",
+      status: .warning
+    )
+  }
+
+  private static func claudeCodeCheck(_ inputs: DoctorInputs) -> DoctorCheck {
+    if !inputs.claudeCodeInstalled {
+      return DoctorCheck(
+        id: "claude-code",
+        title: "Claude Code",
+        detail: "Not added as a provider.",
+        status: .info
+      )
+    }
+    if inputs.claudeCodeConfigured {
+      return DoctorCheck(
+        id: "claude-code",
+        title: "Claude Code",
+        detail: "Claude Code login is configured.",
+        status: .ok
+      )
+    }
+    return DoctorCheck(
+      id: "claude-code",
+      title: "Claude Code",
+      detail: "Not connected. Run \(ClaudeCodeSession.loginCommand) in Terminal.",
       status: .warning
     )
   }

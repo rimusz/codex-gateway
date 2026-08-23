@@ -92,6 +92,52 @@ final class ProviderPresetsTests: XCTestCase {
         XCTAssertEqual(preset.catalogModels().first?.display_name, "Cursor Composer 2.5")
     }
 
+    func testAnthropicPresetDefinition() {
+        let preset = ProviderPreset.anthropic
+        XCTAssertEqual(preset.displayName, "Anthropic (Claude)")
+        XCTAssertEqual(preset.providerID, "anthropic")
+        XCTAssertEqual(preset.baseURL, "https://api.anthropic.com/v1")
+        XCTAssertEqual(preset.suggestedModel, "claude-sonnet-5")
+        XCTAssertTrue(preset.requiresAPIKeyPrompt)
+        XCTAssertTrue(preset.supportsModelListingFetch)
+        XCTAssertTrue(preset.canFetchModels)
+        XCTAssertFalse(preset.seedsSuggestedModelOnInstall)
+        XCTAssertEqual(preset.authKind, .anthropic)
+        let config = preset.providerConfig(apiKey: "sk-ant-test")
+        XCTAssertEqual(config.api_key, "sk-ant-test")
+        XCTAssertEqual(config.auth_kind, "anthropic")
+        XCTAssertTrue(config.usesAnthropicAuth)
+        XCTAssertEqual(config.resolvedAuthKind, .anthropic)
+        let models = preset.catalogModels()
+        XCTAssertEqual(models.first?.slug, "anthropic/claude-sonnet-5")
+        XCTAssertEqual(models.first?.model, "claude-sonnet-5")
+        XCTAssertEqual(models.first?.display_name, "Anthropic Claude Sonnet 5 (API)")
+        XCTAssertEqual(preset.setupCaption, "Claude API key · OpenAI-compat")
+        XCTAssertTrue(preset.showsInstallSheet)
+    }
+
+    func testClaudeCodePresetDefinition() {
+        let preset = ProviderPreset.claudeCode
+        XCTAssertEqual(preset.displayName, "Anthropic (Claude Code)")
+        XCTAssertEqual(preset.providerID, "claude-code")
+        XCTAssertEqual(preset.baseURL, "https://api.anthropic.com/v1")
+        XCTAssertEqual(preset.suggestedModel, "claude-sonnet-5")
+        XCTAssertFalse(preset.requiresAPIKeyPrompt)
+        XCTAssertTrue(preset.supportsModelListingFetch)
+        XCTAssertTrue(preset.canFetchModels)
+        XCTAssertFalse(preset.seedsSuggestedModelOnInstall)
+        XCTAssertEqual(preset.authKind, .claudeCode)
+        XCTAssertTrue(preset.showsInstallSheet)
+        let config = preset.providerConfig(apiKey: "should-not-store")
+        XCTAssertEqual(config.api_key, "")
+        XCTAssertEqual(config.auth_kind, "claude_code")
+        XCTAssertTrue(config.usesClaudeCodeAuth)
+        XCTAssertFalse(config.usesAnthropicAuth)
+        XCTAssertEqual(preset.catalogModels().first?.slug, "claude-code/claude-sonnet-5")
+        XCTAssertEqual(preset.catalogModels().first?.display_name, "Anthropic Claude Sonnet 5 (OAuth)")
+        XCTAssertEqual(preset.setupCaption, "Uses Claude Code login · no key stored")
+    }
+
     func testOpenRouterPresetDefinition() {
         let preset = ProviderPreset.openrouter
         XCTAssertEqual(preset.displayName, "OpenRouter")
@@ -120,6 +166,9 @@ final class ProviderPresetsTests: XCTestCase {
         XCTAssertTrue(ids.contains("grokOAuth"))
         XCTAssertTrue(ids.contains("cursor"))
         XCTAssertTrue(ids.contains("openrouter"))
+        XCTAssertTrue(ids.contains("anthropic"))
+        XCTAssertTrue(ids.contains("claudeCode"))
+        XCTAssertTrue(ids.contains("deepseek"))
     }
 
     func testFeaturedMenuIsAlphabeticalByDisplayName() {
@@ -127,6 +176,9 @@ final class ProviderPresetsTests: XCTestCase {
         XCTAssertEqual(names, names.sorted {
             $0.localizedCaseInsensitiveCompare($1) == .orderedAscending
         })
+        XCTAssertTrue(names.contains("Anthropic (Claude)"))
+        XCTAssertTrue(names.contains("Anthropic (Claude Code)"))
+        XCTAssertTrue(names.firstIndex(of: "Anthropic (Claude)")! < names.firstIndex(of: "Cline Pass")!)
         XCTAssertTrue(names.firstIndex(of: "Cline Pass")! < names.firstIndex(of: "xAI Grok (API)")!)
         XCTAssertTrue(names.firstIndex(of: "xAI Grok (API)")! < names.firstIndex(of: "xAI Grok (OAuth)")!)
     }
@@ -134,6 +186,50 @@ final class ProviderPresetsTests: XCTestCase {
     func testOllamaDoesNotRequireAPIKeyPrompt() {
         XCTAssertFalse(ProviderPreset.ollama.requiresAPIKeyPrompt)
         XCTAssertEqual(ProviderPreset.ollama.defaultAPIKey, "ollama")
+    }
+
+    func testAnthropicInstallOnlyAddsProvider() throws {
+        var savedProvider: ProviderConfig?
+        var savedModels: [CatalogModel] = []
+        var didPatchConfig = false
+
+        let result = try PresetInstaller.install(
+            .anthropic,
+            apiKey: "sk-ant-test",
+            upsertProvider: { savedProvider = $0 },
+            upsertModel: { savedModels.append($0) },
+            patchConfig: { didPatchConfig = true }
+        )
+
+        XCTAssertEqual(result.provider, "anthropic")
+        XCTAssertEqual(result.models, [])
+        XCTAssertTrue(savedModels.isEmpty)
+        XCTAssertEqual(savedProvider?.name, "anthropic")
+        XCTAssertEqual(savedProvider?.display_name, "Anthropic (Claude)")
+        XCTAssertEqual(savedProvider?.base_url, "https://api.anthropic.com/v1")
+        XCTAssertEqual(savedProvider?.api_key, "sk-ant-test")
+        XCTAssertEqual(savedProvider?.auth_kind, "anthropic")
+        XCTAssertTrue(didPatchConfig)
+    }
+
+    func testClaudeCodeInstallStoresNoToken() throws {
+        var savedProvider: ProviderConfig?
+        var savedModels: [CatalogModel] = []
+
+        let result = try PresetInstaller.install(
+            .claudeCode,
+            apiKey: "",
+            upsertProvider: { savedProvider = $0 },
+            upsertModel: { savedModels.append($0) },
+            patchConfig: {}
+        )
+
+        XCTAssertEqual(result.provider, "claude-code")
+        XCTAssertEqual(result.models, [])
+        XCTAssertTrue(savedModels.isEmpty)
+        XCTAssertEqual(savedProvider?.auth_kind, "claude_code")
+        XCTAssertEqual(savedProvider?.api_key, "")
+        XCTAssertEqual(savedProvider?.base_url, "https://api.anthropic.com/v1")
     }
 
     func testPresetInstallOnlyAddsProvider() throws {
@@ -210,8 +306,46 @@ final class ProviderPresetsTests: XCTestCase {
         XCTAssertEqual(api.resolvedAuthKind, .apiKey)
     }
 
+    func testProviderAuthAppliesAnthropicHeaders() {
+        var anthropic = URLRequest(url: URL(string: "https://api.anthropic.com/v1/chat/completions")!)
+        ProviderAuth.apply(to: &anthropic, apiKey: "  sk-ant-test  ", kind: .anthropic)
+        XCTAssertEqual(anthropic.value(forHTTPHeaderField: "Authorization"), "Bearer sk-ant-test")
+        XCTAssertEqual(anthropic.value(forHTTPHeaderField: "x-api-key"), "sk-ant-test")
+        XCTAssertEqual(anthropic.value(forHTTPHeaderField: "anthropic-version"), ProviderAuth.anthropicAPIVersion)
+        XCTAssertEqual(ProviderAuth.anthropicAPIVersion, "2023-06-01")
+
+        var bearer = URLRequest(url: URL(string: "https://api.deepseek.com/chat/completions")!)
+        ProviderAuth.apply(to: &bearer, apiKey: "sk-test", kind: .apiKey)
+        XCTAssertEqual(bearer.value(forHTTPHeaderField: "Authorization"), "Bearer sk-test")
+        XCTAssertNil(bearer.value(forHTTPHeaderField: "x-api-key"))
+        XCTAssertNil(bearer.value(forHTTPHeaderField: "anthropic-version"))
+
+        let config = ProviderPreset.anthropic.providerConfig(apiKey: "sk-ant-test")
+        var fromConfig = URLRequest(url: URL(string: "https://api.anthropic.com/v1/chat/completions")!)
+        XCTAssertTrue(config.applyUpstreamAuth(to: &fromConfig))
+        XCTAssertEqual(fromConfig.value(forHTTPHeaderField: "x-api-key"), "sk-ant-test")
+        XCTAssertEqual(fromConfig.value(forHTTPHeaderField: "anthropic-version"), "2023-06-01")
+        XCTAssertNil(fromConfig.value(forHTTPHeaderField: "anthropic-beta"))
+    }
+
+    func testProviderAuthAppliesClaudeCodeOAuthHeaders() {
+        var request = URLRequest(url: URL(string: "https://api.anthropic.com/v1/chat/completions")!)
+        ProviderAuth.apply(to: &request, apiKey: "sk-ant-oat-fake", kind: .claudeCode)
+        XCTAssertEqual(request.value(forHTTPHeaderField: "Authorization"), "Bearer sk-ant-oat-fake")
+        XCTAssertNil(request.value(forHTTPHeaderField: "x-api-key"))
+        XCTAssertEqual(request.value(forHTTPHeaderField: "anthropic-version"), "2023-06-01")
+        XCTAssertEqual(request.value(forHTTPHeaderField: "anthropic-beta"), ProviderAuth.claudeCodeOAuthBeta)
+        XCTAssertEqual(ProviderAuth.claudeCodeOAuthBeta, "oauth-2025-04-20")
+
+        let config = ProviderPreset.claudeCode.providerConfig(apiKey: "")
+        XCTAssertTrue(config.usesClaudeCodeAuth)
+        XCTAssertEqual(config.api_key, "")
+    }
+
     func testPresetMatchingUsesProviderID() {
         XCTAssertEqual(ProviderPreset.matching(providerID: "clinepass"), .clinePass)
+        XCTAssertEqual(ProviderPreset.matching(providerID: "anthropic"), .anthropic)
+        XCTAssertEqual(ProviderPreset.matching(providerID: "claude-code"), .claudeCode)
         XCTAssertNil(ProviderPreset.matching(providerID: "custom"))
     }
 }

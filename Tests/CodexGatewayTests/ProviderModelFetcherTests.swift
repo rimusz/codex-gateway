@@ -11,6 +11,75 @@ final class ProviderModelFetcherTests: XCTestCase {
             ProviderModelFetcher.modelsURL(for: "https://api.deepseek.com/")?.absoluteString,
             "https://api.deepseek.com/models"
         )
+        // Preset base already includes /v1; fetcher appends /models only (not /v1/models).
+        XCTAssertEqual(
+            ProviderModelFetcher.modelsURL(for: "https://api.anthropic.com/v1")?.absoluteString,
+            "https://api.anthropic.com/v1/models"
+        )
+    }
+
+    func testModelsRequestUsesAnthropicAuthHeaders() throws {
+        let request = try XCTUnwrap(
+            ProviderModelFetcher.modelsRequest(
+                baseURL: "https://api.anthropic.com/v1",
+                apiKey: "sk-ant-fake",
+                authKind: .anthropic
+            )
+        )
+        XCTAssertEqual(request.url?.absoluteString, "https://api.anthropic.com/v1/models")
+        XCTAssertEqual(request.value(forHTTPHeaderField: "Authorization"), "Bearer sk-ant-fake")
+        XCTAssertEqual(request.value(forHTTPHeaderField: "x-api-key"), "sk-ant-fake")
+        XCTAssertEqual(request.value(forHTTPHeaderField: "anthropic-version"), "2023-06-01")
+        XCTAssertNil(request.value(forHTTPHeaderField: "api-key"))
+
+        let bearer = try XCTUnwrap(
+            ProviderModelFetcher.modelsRequest(
+                baseURL: "https://api.deepseek.com",
+                apiKey: "sk-test",
+                authKind: .apiKey
+            )
+        )
+        XCTAssertEqual(bearer.value(forHTTPHeaderField: "Authorization"), "Bearer sk-test")
+        XCTAssertEqual(bearer.value(forHTTPHeaderField: "api-key"), "sk-test")
+        XCTAssertNil(bearer.value(forHTTPHeaderField: "x-api-key"))
+        XCTAssertNil(bearer.value(forHTTPHeaderField: "anthropic-version"))
+
+        let oauth = try XCTUnwrap(
+            ProviderModelFetcher.modelsRequest(
+                baseURL: "https://api.anthropic.com/v1",
+                apiKey: "sk-ant-oat-fake",
+                authKind: .claudeCode
+            )
+        )
+        XCTAssertEqual(oauth.url?.absoluteString, "https://api.anthropic.com/v1/models")
+        XCTAssertEqual(oauth.value(forHTTPHeaderField: "Authorization"), "Bearer sk-ant-oat-fake")
+        XCTAssertNil(oauth.value(forHTTPHeaderField: "x-api-key"))
+        XCTAssertEqual(oauth.value(forHTTPHeaderField: "anthropic-beta"), "oauth-2025-04-20")
+        XCTAssertEqual(oauth.value(forHTTPHeaderField: "anthropic-version"), "2023-06-01")
+        XCTAssertNil(oauth.value(forHTTPHeaderField: "api-key"))
+    }
+
+    func testFetchErrorClaudeCodeSessionMissingUsesLoginHint() {
+        XCTAssertEqual(
+            ProviderModelFetcher.FetchError.claudeCodeSessionMissing.errorDescription,
+            ClaudeCodeSession.missingSessionMessage()
+        )
+        XCTAssertTrue(
+            ProviderModelFetcher.FetchError.claudeCodeSessionMissing.errorDescription?
+                .contains("claude auth login") == true
+        )
+        XCTAssertFalse(
+            ProviderModelFetcher.FetchError.claudeCodeSessionMissing.errorDescription?
+                .contains("fetch models") == true
+        )
+        if case .claudeCodeSessionMissing = ProviderModelFetcher.remapClaudeCodeAuthFailure(.unauthorized) {
+        } else {
+            XCTFail("401/403 in Claude Code mode should become a login hint")
+        }
+        if case .http(500) = ProviderModelFetcher.remapClaudeCodeAuthFailure(.http(500)) {
+        } else {
+            XCTFail("Non-auth fetch errors should stay unchanged")
+        }
     }
 
     func testParseOpenAIStyleModelsResponse() throws {
@@ -28,6 +97,35 @@ final class ProviderModelFetcherTests: XCTestCase {
         let models = try XCTUnwrap(ProviderModelFetcher.parse(data))
         XCTAssertEqual(models.map(\.id), ["a-model", "z-model"])
         XCTAssertEqual(models.last?.ownedBy, "provider")
+    }
+
+    func testParseAnthropicModelsListUsesDisplayName() throws {
+        let data = """
+        {
+          "data": [
+            {
+              "type": "model",
+              "id": "claude-sonnet-5",
+              "display_name": "Claude Sonnet 5",
+              "created_at": "2026-01-01T00:00:00Z"
+            },
+            {
+              "type": "model",
+              "id": "claude-haiku-4-5",
+              "display_name": "Claude Haiku 4.5"
+            },
+            {
+              "id": "claude-sonnet-5"
+            }
+          ],
+          "has_more": false
+        }
+        """.data(using: .utf8)!
+
+        let models = try XCTUnwrap(ProviderModelFetcher.parse(data))
+        XCTAssertEqual(models.map(\.id), ["claude-haiku-4-5", "claude-sonnet-5"])
+        XCTAssertEqual(models.first?.ownedBy, "Claude Haiku 4.5")
+        XCTAssertEqual(models.last?.ownedBy, "Claude Sonnet 5")
     }
 
     func testParseBareArrayAndModelFallback() throws {

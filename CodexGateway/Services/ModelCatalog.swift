@@ -90,7 +90,8 @@ struct ProviderConfig: Codable {
   var base_url: String
   var api_key: String
   var vision_model: String?
-  /// `"api_key"` (default) or `"grok_oauth"`. Omitted in older providers.json → API key.
+  /// `"api_key"` (default), `"grok_oauth"`, `"cursor_bridge"`, `"anthropic"`, or `"claude_code"`.
+  /// Omitted in older providers.json → API key Bearer.
   var auth_kind: String? = nil
 
   var displayLabel: String {
@@ -271,10 +272,10 @@ final class ModelCatalog {
   static func applyingAuthKindSuffix(to name: String, providerID: String?) -> String {
     let id = (providerID ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
     let base = strippingAuthKindSuffix(name)
-    if id == ProviderPreset.xai.providerID {
+    if id == ProviderPreset.xai.providerID || id == ProviderPreset.anthropic.providerID {
       return base.hasSuffix(" (API)") ? base : "\(base) (API)"
     }
-    if id == ProviderPreset.grokOAuth.providerID {
+    if id == ProviderPreset.grokOAuth.providerID || id == ProviderPreset.claudeCode.providerID {
       return base.hasSuffix(" (OAuth)") ? base : "\(base) (OAuth)"
     }
     return name
@@ -310,6 +311,9 @@ final class ModelCatalog {
     // xAI presets share one short brand so model names stay "xAI Grok …", not "xAI Grok Grok …".
     if id == ProviderPreset.xai.providerID || id == ProviderPreset.grokOAuth.providerID {
       return "xAI"
+    }
+    if id == ProviderPreset.anthropic.providerID || id == ProviderPreset.claudeCode.providerID {
+      return "Anthropic"
     }
     let label: String
     if let preset = ProviderPreset.matching(providerID: id) {

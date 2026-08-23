@@ -24,6 +24,8 @@ final class SettingsStore: ObservableObject {
   /// catalog models in its picker when signed in (a free account is enough), so
   /// when this is false and custom models exist we surface a hint.
   @Published private(set) var codexSignedIn = true
+  /// Cached Claude Code login probe. Refreshed on Settings reload / Recheck, not during view layout.
+  @Published private(set) var claudeCodeStatus = ClaudeCodeSession.Status.idle()
 
   var usableProviders: [ProviderConfig] {
     ModelCatalog.sortedProviders(providers.filter { !$0.name.isEmpty })
@@ -59,6 +61,20 @@ final class SettingsStore: ObservableObject {
       applied: ModelCatalog.shared.appliedCodexCustomSlugs(),
       desired: Set(models.map(\.slug))
     )
+    refreshClaudeCodeStatus()
+  }
+
+  func refreshClaudeCodeStatus(force: Bool = false) {
+    guard ClaudeCodeSession.shouldProbeStatus(providers: providers, force: force) else {
+      claudeCodeStatus = .idle()
+      return
+    }
+    Task.detached(priority: .userInitiated) { [weak self] in
+      let status = ClaudeCodeSession.status()
+      await MainActor.run {
+        self?.claudeCodeStatus = status
+      }
+    }
   }
 
   /// Codex config is in sync only when the managed block is present and the applied
@@ -102,6 +118,10 @@ final class SettingsStore: ObservableObject {
     }
 
     let existing = providers.first { $0.name == trimmedName }
+    if existing?.usesAnthropicAuth == true || trimmedName == ProviderPreset.anthropic.providerID,
+       let rejected = ClaudeCodeSession.consoleKeyRejectionMessage(for: apiKey) {
+      throw SettingsError.validation(rejected)
+    }
     try ModelCatalog.shared.upsertProvider(
       ProviderConfig(
         name: trimmedName,
@@ -203,6 +223,9 @@ final class SettingsStore: ObservableObject {
     seedModels: Bool = true,
     patchConfig: Bool = true
   ) throws {
+    if let rejected = ClaudeCodeSession.consoleKeyRejectionMessage(for: preset, key: apiKey) {
+      throw SettingsError.validation(rejected)
+    }
     let result = try PresetInstaller.install(
       preset,
       apiKey: apiKey,
@@ -223,6 +246,16 @@ final class SettingsStore: ObservableObject {
           change: .model
         )
       }
+      return
+    }
+    if preset.authKind == .claudeCode {
+      // One sync probe so the install toast is not racing the detached reload refresh.
+      let status = ClaudeCodeSession.status()
+      claudeCodeStatus = status
+      let sessionNote = status.configured
+        ? "Claude Code login connected."
+        : (status.setupHint ?? "Run `claude auth login` in Terminal.")
+      statusMessage = "Installed \(preset.displayName). \(sessionNote) Add models from the provider row."
       return
     }
     if preset.isManagedCursorBridge {

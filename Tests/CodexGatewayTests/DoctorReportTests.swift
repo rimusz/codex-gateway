@@ -35,7 +35,9 @@ final class DoctorReportTests: XCTestCase {
       cursorKeyPresent: false,
       cursorBridgeReachable: false,
       grokOAuthInstalled: false,
-      grokOAuthConfigured: false
+      grokOAuthConfigured: false,
+      claudeCodeInstalled: false,
+      claudeCodeConfigured: false
     )
   }
 
@@ -54,8 +56,9 @@ final class DoctorReportTests: XCTestCase {
     XCTAssertEqual(check(inputs, id: "signin").status, .ok)
     XCTAssertEqual(check(inputs, id: "cursor").status, .info)
     XCTAssertEqual(check(inputs, id: "grok-oauth").status, .info)
+    XCTAssertEqual(check(inputs, id: "claude-code").status, .info)
     XCTAssertEqual(DoctorReport.checks(from: inputs).map(\.id), [
-      "gateway", "config", "signin", "node", "cursor", "grok-oauth",
+      "gateway", "config", "signin", "node", "cursor", "grok-oauth", "claude-code",
     ])
   }
 
@@ -186,6 +189,23 @@ final class DoctorReportTests: XCTestCase {
     inputs.grokOAuthConfigured = true
     XCTAssertTrue(DoctorReport.isHealthy(inputs))
     XCTAssertEqual(check(inputs, id: "grok-oauth").status, .ok)
+  }
+
+  func testClaudeCodeNotConfiguredIsWarningAndUnhealthy() {
+    var inputs = healthyInputs()
+    inputs.claudeCodeInstalled = true
+    inputs.claudeCodeConfigured = false
+    XCTAssertFalse(DoctorReport.isHealthy(inputs))
+    XCTAssertEqual(check(inputs, id: "claude-code").status, .warning)
+    XCTAssertTrue(DoctorReport.primaryRemediation(inputs)?.contains("claude auth login") == true)
+  }
+
+  func testClaudeCodeConfiguredIsOk() {
+    var inputs = healthyInputs()
+    inputs.claudeCodeInstalled = true
+    inputs.claudeCodeConfigured = true
+    XCTAssertTrue(DoctorReport.isHealthy(inputs))
+    XCTAssertEqual(check(inputs, id: "claude-code").status, .ok)
   }
 
   func testPrimaryRemediationPrefersGatewayOverLaterIssues() {

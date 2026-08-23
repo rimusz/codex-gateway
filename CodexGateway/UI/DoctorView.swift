@@ -85,6 +85,9 @@ struct DoctorView: View {
           } else if needsGrokLogin {
             Button("Open Terminal…") { openGrokLoginInTerminal() }
               .controlSize(.small)
+          } else if needsClaudeCodeLogin {
+            Button("Open Terminal…") { openClaudeCodeLoginInTerminal() }
+              .controlSize(.small)
           } else if needsSettings {
             Button("Open Settings") {
               SettingsWindowController.shared.show()
@@ -122,11 +125,22 @@ struct DoctorView: View {
       && !inputs.grokOAuthConfigured
   }
 
+  private var needsClaudeCodeLogin: Bool {
+    inputs.gatewayReachable
+      && !needsConfigRepair
+      && !needsGrokLogin
+      && !(inputs.cursorProviderInstalled && !inputs.nodeMeetsMinimum)
+      && !(inputs.cursorProviderInstalled && !inputs.cursorKeyPresent)
+      && inputs.claudeCodeInstalled
+      && !inputs.claudeCodeConfigured
+  }
+
   private var needsSettings: Bool {
     inputs.gatewayReachable
       && !needsConfigRepair
       && !needsNodeInstall
       && !needsGrokLogin
+      && !needsClaudeCodeLogin
       && (
         (inputs.cursorProviderInstalled && !inputs.cursorKeyPresent)
           || !inputs.configApplied
@@ -159,6 +173,10 @@ struct DoctorView: View {
         }
         if check.id == "grok-oauth", check.status == .warning {
           Button("Open Terminal…") { openGrokLoginInTerminal() }
+            .controlSize(.small)
+        }
+        if check.id == "claude-code", check.status == .warning {
+          Button("Open Terminal…") { openClaudeCodeLoginInTerminal() }
             .controlSize(.small)
         }
       }
@@ -205,6 +223,10 @@ struct DoctorView: View {
 
   private func openGrokLoginInTerminal() {
     runAppleScript(GrokOAuthSession.loginTerminalScript())
+  }
+
+  private func openClaudeCodeLoginInTerminal() {
+    runAppleScript(ClaudeCodeSession.loginTerminalScript())
   }
 
   private func runAppleScript(_ source: String) {

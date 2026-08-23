@@ -164,13 +164,31 @@ struct SetupView: View {
         Button(SetupCopy.recheck) { store.refreshGrokStatus() }
           .controlSize(.small)
       }
+    } else if preset.authKind == .claudeCode {
+      Text(store.claudeCodeStatus.configured ? "Claude Code login connected." : (store.claudeCodeStatus.setupHint ?? "Not signed in"))
+        .foregroundStyle(store.claudeCodeStatus.configured ? AnyShapeStyle(.primary) : AnyShapeStyle(Color.orange))
+      Text("Use Claude Code login — run `claude auth login` or Claude Code /login. The token stays in ~/.claude or the macOS Keychain.")
+        .font(.caption)
+        .foregroundStyle(.secondary)
+      HStack(spacing: 10) {
+        Button("Open Terminal…") { openClaudeCodeLogin() }
+          .controlSize(.small)
+        Button(SetupCopy.recheck) { store.refreshClaudeCodeStatus() }
+          .controlSize(.small)
+      }
     } else if preset.isManagedCursorBridge {
       cursorConnect
     } else if preset.requiresAPIKeyPrompt {
       SecureField("API key", text: $store.apiKey)
-      Text("Your key is stored locally in ~/.codexgateway/providers.json.")
-        .font(.caption)
-        .foregroundStyle(.secondary)
+      if preset == .anthropic {
+        Text("Anthropic Console API key. For Claude Code login, choose Anthropic (Claude Code) instead — do not paste an OAuth token here.")
+          .font(.caption)
+          .foregroundStyle(.secondary)
+      } else {
+        Text("Your key is stored locally in ~/.codexgateway/providers.json.")
+          .font(.caption)
+          .foregroundStyle(.secondary)
+      }
     } else {
       Text(SetupCopy.noAPIKeyNeeded)
         .foregroundStyle(.secondary)
@@ -371,6 +389,10 @@ struct SetupView: View {
     runAppleScript(GrokOAuthSession.loginTerminalScript())
   }
 
+  private func openClaudeCodeLogin() {
+    runAppleScript(ClaudeCodeSession.loginTerminalScript())
+  }
+
   private func runAppleScript(_ source: String) {
     if let apple = NSAppleScript(source: source) {
       var err: NSDictionary?
@@ -392,6 +414,10 @@ extension ProviderPreset {
       return "Local · no API key"
     case .clinePass:
       return "Fetches Cline Pass catalog"
+    case .anthropic:
+      return "Claude API key · OpenAI-compat"
+    case .claudeCode:
+      return "Uses Claude Code login · no key stored"
     default:
       return "OpenAI-compatible API key"
     }

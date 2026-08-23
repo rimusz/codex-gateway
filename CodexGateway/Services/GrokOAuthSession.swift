@@ -5,6 +5,38 @@ enum ProviderAuthKind: String, Codable, Sendable {
   case apiKey = "api_key"
   case grokOAuth = "grok_oauth"
   case cursorBridge = "cursor_bridge"
+  /// Claude OpenAI-compat + Models API: Bearer, `x-api-key`, and `anthropic-version`.
+  case anthropic = "anthropic"
+  /// Claude Code / claude.ai OAuth: Bearer + `anthropic-beta: oauth-2025-04-20` (no `x-api-key`).
+  case claudeCode = "claude_code"
+}
+
+/// Shared upstream auth headers. Anthropic Console keys use `x-api-key` +
+/// `anthropic-version`. Claude Code OAuth tokens (`sk-ant-oat…`) use Bearer +
+/// `anthropic-beta: oauth-2025-04-20` against the same OpenAI-compat base.
+enum ProviderAuth {
+  static let anthropicAPIVersion = "2023-06-01"
+  static let claudeCodeOAuthBeta = "oauth-2025-04-20"
+
+  static func apply(
+    to request: inout URLRequest,
+    apiKey: String,
+    kind: ProviderAuthKind
+  ) {
+    let key = apiKey.trimmingCharacters(in: .whitespacesAndNewlines)
+    guard !key.isEmpty else { return }
+    request.setValue("Bearer \(key)", forHTTPHeaderField: "Authorization")
+    switch kind {
+    case .anthropic:
+      request.setValue(key, forHTTPHeaderField: "x-api-key")
+      request.setValue(anthropicAPIVersion, forHTTPHeaderField: "anthropic-version")
+    case .claudeCode:
+      request.setValue(anthropicAPIVersion, forHTTPHeaderField: "anthropic-version")
+      request.setValue(claudeCodeOAuthBeta, forHTTPHeaderField: "anthropic-beta")
+    default:
+      break
+    }
+  }
 }
 
 /// Reads the official Grok CLI session (`~/.grok/auth.json`) and refreshes via `grok models`.
@@ -241,7 +273,26 @@ extension ProviderConfig {
 
   var usesGrokOAuth: Bool { resolvedAuthKind == .grokOAuth }
 
+  var usesAnthropicAuth: Bool { resolvedAuthKind == .anthropic }
+
+  var usesClaudeCodeAuth: Bool { resolvedAuthKind == .claudeCode }
+
   var usesCursorBridge: Bool {
     resolvedAuthKind == .cursorBridge || name == ProviderPreset.cursor.providerID
+  }
+
+  /// Applies Console / generic Bearer headers from `api_key`, or the live Claude Code session.
+  /// Returns `false` when Claude Code mode is selected but no local login is available.
+  @discardableResult
+  func applyUpstreamAuth(to request: inout URLRequest) -> Bool {
+    if usesClaudeCodeAuth {
+      guard let token = ClaudeCodeSession.loadUsableSession()?.accessToken, !token.isEmpty else {
+        return false
+      }
+      ProviderAuth.apply(to: &request, apiKey: token, kind: .claudeCode)
+      return true
+    }
+    ProviderAuth.apply(to: &request, apiKey: api_key, kind: resolvedAuthKind)
+    return true
   }
 }

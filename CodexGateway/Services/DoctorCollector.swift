@@ -10,6 +10,7 @@ enum DoctorCollector {
     let models = ModelCatalog.shared.loadCatalog().models
     let cursorInstalled = providers.contains { $0.usesCursorBridge }
     let grokInstalled = providers.contains { $0.usesGrokOAuth }
+    let claudeCodeInstalled = providers.contains { $0.usesClaudeCodeAuth }
     let configApplied = CodexConfig.hasManagedBlock()
     let configContent = try? String(contentsOfFile: Paths.codexConfig, encoding: .utf8)
 
@@ -38,7 +39,15 @@ enum DoctorCollector {
     inputs.cursorBridgeReachable = cursorInstalled && cursorProbe.isOnline
 
     inputs.grokOAuthInstalled = grokInstalled
-    inputs.grokOAuthConfigured = GrokOAuthSession.status().configured
+    inputs.claudeCodeInstalled = claudeCodeInstalled
+    let sessionFlags = await Task.detached(priority: .userInitiated) {
+      (
+        GrokOAuthSession.status().configured,
+        claudeCodeInstalled ? ClaudeCodeSession.status().configured : false
+      )
+    }.value
+    inputs.grokOAuthConfigured = sessionFlags.0
+    inputs.claudeCodeConfigured = sessionFlags.1
     return inputs
   }
 

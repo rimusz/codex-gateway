@@ -15,6 +15,7 @@ enum ProviderModelFetcher {
   enum FetchError: LocalizedError {
     case invalidURL
     case unauthorized
+    case claudeCodeSessionMissing
     case http(Int)
     case empty
     case transport(String)
@@ -24,6 +25,7 @@ enum ProviderModelFetcher {
       switch self {
       case .invalidURL: return "The base URL is not a valid endpoint."
       case .unauthorized: return "Unauthorized - check the API key for this provider."
+      case .claudeCodeSessionMissing: return ClaudeCodeSession.missingSessionMessage()
       case .http(let code): return "The provider returned HTTP \(code)."
       case .empty: return "The provider returned no models."
       case .transport(let message): return message
@@ -67,21 +69,38 @@ enum ProviderModelFetcher {
       }
       guard !skipIDs.contains(id.lowercased()) else { continue }
       guard seen.insert(id).inserted else { continue }
-      models.append(FetchedModel(id: id, ownedBy: entry["owned_by"] as? String))
+      let ownedBy = (entry["owned_by"] as? String)
+        ?? (entry["display_name"] as? String)
+      models.append(FetchedModel(id: id, ownedBy: ownedBy))
     }
     return models.sorted { $0.id.localizedCaseInsensitiveCompare($1.id) == .orderedAscending }
   }
 
-  static func fetch(baseURL: String, apiKey: String) async throws -> [FetchedModel] {
-    guard let url = modelsURL(for: baseURL) else { throw FetchError.invalidURL }
-
+  /// Builds `GET {base_url}/models` with provider auth. Exposed for unit tests (no network).
+  static func modelsRequest(
+    baseURL: String,
+    apiKey: String,
+    authKind: ProviderAuthKind = .apiKey
+  ) -> URLRequest? {
+    guard let url = modelsURL(for: baseURL) else { return nil }
     var request = URLRequest(url: url)
     request.timeoutInterval = 15
     request.setValue("application/json", forHTTPHeaderField: "Accept")
     let key = apiKey.trimmingCharacters(in: .whitespacesAndNewlines)
-    if !key.isEmpty {
-      request.setValue("Bearer \(key)", forHTTPHeaderField: "Authorization")
+    ProviderAuth.apply(to: &request, apiKey: key, kind: authKind)
+    if !key.isEmpty, authKind != .anthropic, authKind != .claudeCode {
       request.setValue(key, forHTTPHeaderField: "api-key")
+    }
+    return request
+  }
+
+  static func fetch(
+    baseURL: String,
+    apiKey: String,
+    authKind: ProviderAuthKind = .apiKey
+  ) async throws -> [FetchedModel] {
+    guard let request = modelsRequest(baseURL: baseURL, apiKey: apiKey, authKind: authKind) else {
+      throw FetchError.invalidURL
     }
 
     let data: Data
@@ -148,6 +167,12 @@ enum ProviderModelFetcher {
     return ClinePassCatalog.sortedAlphabetically(models)
   }
 
+  /// Claude Code login failures should never ask the user to check an API key.
+  static func remapClaudeCodeAuthFailure(_ error: FetchError) -> FetchError {
+    if case .unauthorized = error { return .claudeCodeSessionMissing }
+    return error
+  }
+
   /// Fetches models for an installed provider, routing Cline Pass / Grok OAuth to their catalogs.
   static func fetch(for provider: ProviderConfig) async throws -> [FetchedModel] {
     if provider.usesGrokOAuth
@@ -157,7 +182,25 @@ enum ProviderModelFetcher {
     if ProviderPreset.matching(providerID: provider.name)?.supportsLiveCatalogRefresh == true {
       return try await fetchClinePassRecommended()
     }
-    return try await fetch(baseURL: provider.base_url, apiKey: provider.api_key)
+    if provider.usesClaudeCodeAuth {
+      guard let token = ClaudeCodeSession.loadUsableSession()?.accessToken, !token.isEmpty else {
+        throw FetchError.claudeCodeSessionMissing
+      }
+      do {
+        return try await fetch(
+          baseURL: provider.base_url.isEmpty ? ProviderPreset.claudeCode.baseURL : provider.base_url,
+          apiKey: token,
+          authKind: .claudeCode
+        )
+      } catch let error as FetchError {
+        throw remapClaudeCodeAuthFailure(error)
+      }
+    }
+    return try await fetch(
+      baseURL: provider.base_url,
+      apiKey: provider.api_key,
+      authKind: provider.resolvedAuthKind
+    )
   }
 
   /// Grok CLI OAuth catalog: `GET {base}/models-v2` with session from `~/.grok/auth.json`.
