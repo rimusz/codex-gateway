@@ -20,9 +20,19 @@ enum ClaudeCodeSession {
     CursorBridge.NodeRequirement.brewInstallTerminalScript(command: command)
   }
 
+  static let envSourceLabel = "$CLAUDE_CODE_OAUTH_TOKEN"
+  static let keychainSourceLabel = "keychain:Claude Code-credentials"
+
   struct Session: Equatable, Sendable {
     let accessToken: String
     let expiresAt: Date?
+    let sourcePath: String
+
+    init(accessToken: String, expiresAt: Date?, sourcePath: String = "") {
+      self.accessToken = accessToken
+      self.expiresAt = expiresAt
+      self.sourcePath = sourcePath
+    }
 
     var looksLikeOAuthAccessToken: Bool {
       ClaudeCodeSession.looksLikeOAuthAccessToken(accessToken)
@@ -98,15 +108,19 @@ enum ClaudeCodeSession {
   ) -> Session? {
     if let env = environment["CLAUDE_CODE_OAUTH_TOKEN"]?.trimmingCharacters(in: .whitespacesAndNewlines),
        !env.isEmpty {
-      return Session(accessToken: env, expiresAt: nil)
+      return Session(accessToken: env, expiresAt: nil, sourcePath: envSourceLabel)
     }
     for url in [credentialsURL, legacyURL] {
       if let data = try? Data(contentsOf: url), let session = parseCredentials(data) {
-        return session
+        return Session(accessToken: session.accessToken, expiresAt: session.expiresAt, sourcePath: url.path)
       }
     }
     if let data = readKeychain(), let session = parseCredentials(data) {
-      return session
+      return Session(
+        accessToken: session.accessToken,
+        expiresAt: session.expiresAt,
+        sourcePath: keychainSourceLabel
+      )
     }
     return nil
   }
@@ -155,22 +169,24 @@ enum ClaudeCodeSession {
       environment: environment,
       readKeychain: readKeychain
     )
+    let reportedSource = session.flatMap { $0.sourcePath.isEmpty ? nil : $0.sourcePath }
+      ?? credentialsURL.path
     if let session, session.isExpired {
       return Status(
         configured: false,
-        sourcePath: credentialsURL.path,
+        sourcePath: reportedSource,
         setupHint: "Claude Code login expired. Run `\(loginCommand)` in Terminal."
       )
     }
     if let session, !session.looksLikeOAuthAccessToken {
       return Status(
         configured: false,
-        sourcePath: credentialsURL.path,
+        sourcePath: reportedSource,
         setupHint: "The local credential is not a Claude Code OAuth token. Run `\(loginCommand)` — do not use an Anthropic Console API key here."
       )
     }
     if session != nil {
-      return Status(configured: true, sourcePath: credentialsURL.path, setupHint: nil)
+      return Status(configured: true, sourcePath: reportedSource, setupHint: nil)
     }
     return Status(
       configured: false,

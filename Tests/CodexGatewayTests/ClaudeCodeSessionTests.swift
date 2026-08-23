@@ -48,6 +48,7 @@ final class ClaudeCodeSessionTests: XCTestCase {
       readKeychain: { nil }
     )
     XCTAssertEqual(fromFile?.accessToken, "sk-ant-oat-file")
+    XCTAssertEqual(fromFile?.sourcePath, file.path)
 
     let fromEnv = ClaudeCodeSession.loadSession(
       credentialsURL: file,
@@ -56,6 +57,16 @@ final class ClaudeCodeSessionTests: XCTestCase {
       readKeychain: { Data(#"{"claudeAiOauth":{"accessToken":"sk-ant-oat-keychain"}}"#.utf8) }
     )
     XCTAssertEqual(fromEnv?.accessToken, "sk-ant-oat-env")
+    XCTAssertEqual(fromEnv?.sourcePath, ClaudeCodeSession.envSourceLabel)
+    XCTAssertEqual(
+      ClaudeCodeSession.status(
+        credentialsURL: file,
+        legacyURL: missing,
+        environment: ["CLAUDE_CODE_OAUTH_TOKEN": "sk-ant-oat-env"],
+        readKeychain: { nil }
+      ).sourcePath,
+      ClaudeCodeSession.envSourceLabel
+    )
   }
 
   func testLoadSessionReadsKeychainFixtureWhenFilesMissing() {
@@ -67,6 +78,7 @@ final class ClaudeCodeSessionTests: XCTestCase {
       readKeychain: { Data(#"{"claudeAiOauth":{"accessToken":"sk-ant-oat-keychain"}}"#.utf8) }
     )
     XCTAssertEqual(session?.accessToken, "sk-ant-oat-keychain")
+    XCTAssertEqual(session?.sourcePath, ClaudeCodeSession.keychainSourceLabel)
   }
 
   func testLoadUsableSessionRejectsExpiredFixture() throws {
