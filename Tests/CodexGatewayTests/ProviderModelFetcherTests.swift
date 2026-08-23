@@ -30,7 +30,7 @@ final class ProviderModelFetcherTests: XCTestCase {
         XCTAssertEqual(request.value(forHTTPHeaderField: "Authorization"), "Bearer sk-ant-fake")
         XCTAssertEqual(request.value(forHTTPHeaderField: "x-api-key"), "sk-ant-fake")
         XCTAssertEqual(request.value(forHTTPHeaderField: "anthropic-version"), "2023-06-01")
-        XCTAssertEqual(request.value(forHTTPHeaderField: "api-key"), "sk-ant-fake")
+        XCTAssertNil(request.value(forHTTPHeaderField: "api-key"))
 
         let bearer = try XCTUnwrap(
             ProviderModelFetcher.modelsRequest(
@@ -40,6 +40,7 @@ final class ProviderModelFetcherTests: XCTestCase {
             )
         )
         XCTAssertEqual(bearer.value(forHTTPHeaderField: "Authorization"), "Bearer sk-test")
+        XCTAssertEqual(bearer.value(forHTTPHeaderField: "api-key"), "sk-test")
         XCTAssertNil(bearer.value(forHTTPHeaderField: "x-api-key"))
         XCTAssertNil(bearer.value(forHTTPHeaderField: "anthropic-version"))
 

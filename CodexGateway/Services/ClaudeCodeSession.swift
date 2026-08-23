@@ -155,6 +155,12 @@ enum ClaudeCodeSession {
     return "That looks like a Claude Code login token. Install Anthropic (Claude Code) instead — do not paste an OAuth token into the Console API key field."
   }
 
+  /// Only the Anthropic Console-key preset rejects `sk-ant-oat…` keys.
+  static func consoleKeyRejectionMessage(for preset: ProviderPreset, key: String) -> String? {
+    guard preset == .anthropic else { return nil }
+    return consoleKeyRejectionMessage(for: key)
+  }
+
   /// macOS-only; returns nil on Linux / when `security` cannot read the item.
   static func readMacOSKeychain(
     service: String = keychainService,

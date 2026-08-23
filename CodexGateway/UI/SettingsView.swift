@@ -340,7 +340,7 @@ struct SettingsView: View {
       return "Grok CLI OAuth · \(auth) · fetches model catalog"
     }
     if preset.authKind == .claudeCode {
-      let status = ClaudeCodeSession.status()
+      let status = store.claudeCodeStatus
       let auth = status.configured ? "Connected" : "Not signed in"
       return "Claude Code login · \(auth) · fetches model list"
     }
@@ -510,7 +510,7 @@ struct SettingsView: View {
           .help(status.setupHint ?? "Run `grok login` in Terminal")
       }
     } else if provider.usesClaudeCodeAuth {
-      let status = ClaudeCodeSession.status()
+      let status = store.claudeCodeStatus
       if status.configured {
         Label("Claude Code", systemImage: "person.badge.key.fill")
           .font(.caption2)
@@ -714,12 +714,14 @@ struct SettingsView: View {
             .font(.caption)
             .foregroundStyle(.secondary)
         } else if isClaudeCode {
-          let status = ClaudeCodeSession.status()
+          let status = store.claudeCodeStatus
           Text(status.configured ? "Claude Code login connected" : (status.setupHint ?? "Not signed in"))
             .foregroundStyle(status.configured ? AnyShapeStyle(.secondary) : AnyShapeStyle(Color.orange))
           Text("Uses the local Claude Code / CLI login at runtime. No OAuth token is stored in providers.json.")
             .font(.caption)
             .foregroundStyle(.secondary)
+          Button("Recheck") { store.refreshClaudeCodeStatus() }
+            .controlSize(.small)
         } else if isCursor {
           cursorCredentialFields(
             keyHint: CursorBridgeKeychain.hasAPIKey()
@@ -748,6 +750,9 @@ struct SettingsView: View {
     .onAppear {
       refreshCursorNodeProbe()
       cursorBridgeStatus = CursorBridgeRuntime.status
+      if isClaudeCode {
+        store.refreshClaudeCodeStatus()
+      }
     }
   }
 
@@ -1055,12 +1060,14 @@ struct SettingsView: View {
             .font(.caption)
             .foregroundStyle(.secondary)
         } else if preset.authKind == .claudeCode {
-          let status = ClaudeCodeSession.status()
+          let status = store.claudeCodeStatus
           Text(status.configured ? "Claude Code login connected." : (status.setupHint ?? "Not signed in"))
             .foregroundStyle(status.configured ? AnyShapeStyle(.primary) : AnyShapeStyle(Color.orange))
           Text("Use Claude Code login — run `claude auth login` or Claude Code /login. CodexGateway reads the local session at runtime and does not store the token.")
             .font(.caption)
             .foregroundStyle(.secondary)
+          Button("Recheck") { store.refreshClaudeCodeStatus() }
+            .controlSize(.small)
         } else if preset.isManagedCursorBridge {
           cursorCredentialFields(keyHint: "Cursor API key (key_…)")
           Text("Inference-only bridge: Codex keeps tool calling; Cursor returns assistant text via the local sidecar.")
@@ -1104,7 +1111,7 @@ struct SettingsView: View {
             store.errorMessage = "An API key is required for \(preset.displayName)."
             return
           }
-          if let rejected = ClaudeCodeSession.consoleKeyRejectionMessage(for: key) {
+          if let rejected = ClaudeCodeSession.consoleKeyRejectionMessage(for: preset, key: key) {
             store.errorMessage = rejected
             return
           }
@@ -1123,6 +1130,9 @@ struct SettingsView: View {
         providerAPIKey = ""
         refreshCursorNodeProbe()
         cursorBridgeStatus = CursorBridgeRuntime.status
+      }
+      if preset.authKind == .claudeCode {
+        store.refreshClaudeCodeStatus()
       }
     }
   }

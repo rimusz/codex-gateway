@@ -96,5 +96,8 @@ final class ClaudeCodeSessionTests: XCTestCase {
     let message = ClaudeCodeSession.consoleKeyRejectionMessage(for: "sk-ant-oat-fake")
     XCTAssertTrue(message?.contains("Anthropic (Claude Code)") == true)
     XCTAssertTrue(message?.contains("do not paste") == true)
+    XCTAssertNotNil(ClaudeCodeSession.consoleKeyRejectionMessage(for: .anthropic, key: "sk-ant-oat-fake"))
+    XCTAssertNil(ClaudeCodeSession.consoleKeyRejectionMessage(for: .deepseek, key: "sk-ant-oat-fake"))
+    XCTAssertNil(ClaudeCodeSession.consoleKeyRejectionMessage(for: .claudeCode, key: "sk-ant-oat-fake"))
   }
 }

@@ -274,7 +274,7 @@ final class SetupStore: ObservableObject {
       guard !key.isEmpty else {
         throw SettingsError.validation("An API key is required for \(preset.displayName).")
       }
-      if let rejected = ClaudeCodeSession.consoleKeyRejectionMessage(for: key) {
+      if let rejected = ClaudeCodeSession.consoleKeyRejectionMessage(for: preset, key: key) {
         throw SettingsError.validation(rejected)
       }
       try settings.installPreset(preset, apiKey: key, seedModels: false, patchConfig: false)

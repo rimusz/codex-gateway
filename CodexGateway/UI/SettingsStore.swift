@@ -24,6 +24,12 @@ final class SettingsStore: ObservableObject {
   /// catalog models in its picker when signed in (a free account is enough), so
   /// when this is false and custom models exist we surface a hint.
   @Published private(set) var codexSignedIn = true
+  /// Cached Claude Code login probe. Refreshed on Settings reload / Recheck, not during view layout.
+  @Published private(set) var claudeCodeStatus = ClaudeCodeSession.Status(
+    configured: false,
+    sourcePath: ClaudeCodeSession.defaultCredentialsURL.path,
+    setupHint: nil
+  )
 
   var usableProviders: [ProviderConfig] {
     ModelCatalog.sortedProviders(providers.filter { !$0.name.isEmpty })
@@ -59,6 +65,11 @@ final class SettingsStore: ObservableObject {
       applied: ModelCatalog.shared.appliedCodexCustomSlugs(),
       desired: Set(models.map(\.slug))
     )
+    refreshClaudeCodeStatus()
+  }
+
+  func refreshClaudeCodeStatus() {
+    claudeCodeStatus = ClaudeCodeSession.status()
   }
 
   /// Codex config is in sync only when the managed block is present and the applied
@@ -207,7 +218,7 @@ final class SettingsStore: ObservableObject {
     seedModels: Bool = true,
     patchConfig: Bool = true
   ) throws {
-    if preset == .anthropic, let rejected = ClaudeCodeSession.consoleKeyRejectionMessage(for: apiKey) {
+    if let rejected = ClaudeCodeSession.consoleKeyRejectionMessage(for: preset, key: apiKey) {
       throw SettingsError.validation(rejected)
     }
     let result = try PresetInstaller.install(

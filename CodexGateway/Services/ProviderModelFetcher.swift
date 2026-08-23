@@ -88,7 +88,7 @@ enum ProviderModelFetcher {
     request.setValue("application/json", forHTTPHeaderField: "Accept")
     let key = apiKey.trimmingCharacters(in: .whitespacesAndNewlines)
     ProviderAuth.apply(to: &request, apiKey: key, kind: authKind)
-    if !key.isEmpty, authKind != .claudeCode {
+    if !key.isEmpty, authKind != .anthropic, authKind != .claudeCode {
       request.setValue(key, forHTTPHeaderField: "api-key")
     }
     return request
