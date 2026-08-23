@@ -9,8 +9,9 @@ enum ProviderAuthKind: String, Codable, Sendable {
   case anthropic = "anthropic"
 }
 
-/// Shared upstream auth headers. Anthropic's `/v1/models` and native API require
-/// `x-api-key` + `anthropic-version`; OpenAI-compat chat also accepts Bearer.
+/// Shared upstream auth headers. Anthropic `GET {base}/models` (host path `/v1/models`)
+/// and the native API require `x-api-key` + `anthropic-version`; OpenAI-compat chat
+/// also accepts Bearer.
 enum ProviderAuth {
   static let anthropicAPIVersion = "2023-06-01"
 

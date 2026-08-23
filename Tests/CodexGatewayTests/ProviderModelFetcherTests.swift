@@ -11,6 +11,7 @@ final class ProviderModelFetcherTests: XCTestCase {
             ProviderModelFetcher.modelsURL(for: "https://api.deepseek.com/")?.absoluteString,
             "https://api.deepseek.com/models"
         )
+        // Preset base already includes /v1; fetcher appends /models only (not /v1/models).
         XCTAssertEqual(
             ProviderModelFetcher.modelsURL(for: "https://api.anthropic.com/v1")?.absoluteString,
             "https://api.anthropic.com/v1/models"

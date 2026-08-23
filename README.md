@@ -99,7 +99,7 @@ Everything lives in the **Settings** window — no browser needed. **Add Provide
 
 Install a built-in preset from **Add Provider** (**Anthropic (Claude), Z.ai, Kimi, Qwen, Xiaomi MiMo, Cline Pass, MiniMax, DeepSeek, xAI Grok (API), xAI Grok (OAuth), OpenRouter, Ollama**) or **Add custom provider**. You're prompted for an API key when the provider needs one. Provider rows show a compact model count and status.
 
-**Anthropic (Claude)** uses Anthropic's OpenAI-compatible API at `https://api.anthropic.com/v1` with a Claude API key from [console.anthropic.com](https://console.anthropic.com/settings/keys). Settings fetches models from `GET /v1/models` and the gateway forwards chat to `/chat/completions` (no native Messages-API translator). Requests send Bearer plus `x-api-key` and `anthropic-version`.
+**Anthropic (Claude)** uses Anthropic's OpenAI-compatible API at `https://api.anthropic.com/v1` with a Claude API key from [console.anthropic.com](https://console.anthropic.com/settings/keys). Settings fetches models with `GET /models` against that base (host path `/v1/models`, not `/v1/v1/models`) and the gateway forwards chat to `/chat/completions` (no native Messages-API translator). Requests send Bearer plus `x-api-key` and `anthropic-version`.
 
 **xAI Grok (API) vs xAI Grok (OAuth):** keep them separate. **xAI Grok (API)** uses an API key against `api.x.ai` and fetches models from that API. **xAI Grok (OAuth)** uses the official Grok CLI session (`npm i -g @xai-official/grok` then `grok login`), forwards through xAI’s CLI chat proxy, and fetches the model list from the CLI OAuth catalog (`/models-v2`) — no key in `providers.json`. Both can be installed side by side.
 
