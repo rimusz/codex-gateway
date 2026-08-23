@@ -140,7 +140,12 @@ final class SetupStore: ObservableObject {
   }
 
   func refreshClaudeCodeStatus() {
-    claudeCodeStatus = ClaudeCodeSession.status()
+    Task {
+      let status = await Task.detached(priority: .userInitiated) {
+        ClaudeCodeSession.status()
+      }.value
+      claudeCodeStatus = status
+    }
   }
 
   func connectPrimaryTitle() -> String {

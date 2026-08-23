@@ -69,7 +69,12 @@ final class SettingsStore: ObservableObject {
       claudeCodeStatus = .idle()
       return
     }
-    claudeCodeStatus = ClaudeCodeSession.status()
+    Task.detached(priority: .userInitiated) { [weak self] in
+      let status = ClaudeCodeSession.status()
+      await MainActor.run {
+        self?.claudeCodeStatus = status
+      }
+    }
   }
 
   /// Codex config is in sync only when the managed block is present and the applied
@@ -244,7 +249,9 @@ final class SettingsStore: ObservableObject {
       return
     }
     if preset.authKind == .claudeCode {
-      let status = claudeCodeStatus
+      // One sync probe so the install toast is not racing the detached reload refresh.
+      let status = ClaudeCodeSession.status()
+      claudeCodeStatus = status
       let sessionNote = status.configured
         ? "Claude Code login connected."
         : (status.setupHint ?? "Run `claude auth login` in Terminal.")
