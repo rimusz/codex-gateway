@@ -244,7 +244,7 @@ final class SettingsStore: ObservableObject {
       return
     }
     if preset.authKind == .claudeCode {
-      let status = ClaudeCodeSession.status()
+      let status = claudeCodeStatus
       let sessionNote = status.configured
         ? "Claude Code login connected."
         : (status.setupHint ?? "Run `claude auth login` in Terminal.")
