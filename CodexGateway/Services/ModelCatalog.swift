@@ -90,7 +90,8 @@ struct ProviderConfig: Codable {
   var base_url: String
   var api_key: String
   var vision_model: String?
-  /// `"api_key"` (default) or `"grok_oauth"`. Omitted in older providers.json → API key.
+  /// `"api_key"` (default), `"grok_oauth"`, `"cursor_bridge"`, or `"anthropic"`.
+  /// Omitted in older providers.json → API key Bearer.
   var auth_kind: String? = nil
 
   var displayLabel: String {

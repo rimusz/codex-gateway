@@ -79,7 +79,7 @@ codex-gateway/                    # GitHub repo (`rimusz/codex-gateway`; legacy 
 │   │   ├── LoopbackHTTPServer.swift
 │   │   ├── Translator.swift      # Responses ↔ Chat translation
 │   │   ├── ModelCatalog.swift    # custom_model_catalog.json + providers
-│   │   ├── ProviderPresets.swift # Built-in presets (incl. Cursor bridge, xAI API + Grok OAuth)
+│   │   ├── ProviderPresets.swift # Built-in presets (incl. Anthropic/Claude, Cursor bridge, xAI API + Grok OAuth)
 │   │   ├── CustomProviderExample.swift # Spark DeepSeek fill-in for custom provider editor
 │   │   ├── GrokOAuthSession.swift # ~/.grok/auth.json + `grok models` refresh
 │   │   ├── GrokOAuthClient.swift  # CLI chat proxy (Responses) forwarder
@@ -88,7 +88,7 @@ codex-gateway/                    # GitHub repo (`rimusz/codex-gateway`; legacy 
 │   │   ├── CursorBridgeKeychain.swift # Application Support secret for CURSOR_API_KEY
 │   │   ├── DoctorReport.swift    # Pure Doctor check mapping (gateway, Codex, Node, Cursor, Grok)
 │   │   ├── DoctorCollector.swift # Live probes for DoctorInputs
-│   │   ├── ProviderModelFetcher.swift # OpenAI /models + Cline Pass recommended-models
+│   │   ├── ProviderModelFetcher.swift # OpenAI /models + Anthropic /v1/models + Cline Pass recommended-models
 │   │   ├── FetchedModelsStore.swift   # ~/.codexgateway/fetched_models.json cache
 │   │   ├── ZstdBridge.swift         # zstd decompress for Codex request bodies
 │   │   ├── UpdateChecker.swift    # GitHub release version check
@@ -184,9 +184,9 @@ Install helper: `scripts/codexgateway-install-update.sh` → bundled as `Content
 |------|---------|
 | `~/.codexgateway/custom_model_catalog.json` | CodexGateway internal model catalog (routing metadata). Raw model ids get friendly display names via `ModelCatalog.prettyDisplayName` / `normalizeDisplayNames` (run on Settings reload + gateway startup; drops `vendor/model` prefixes, collapses doubled vendors, title-cases, prefixes the provider brand Cline-style via `providerBrand`, and appends `(API)` / `(OAuth)` for xAI vs Grok OAuth, e.g. "xAI Grok 4.5 (API)"); user-edited names are preserved. `ProviderConfig.displayLabel` prefers a stored `display_name` over the built-in preset title. Providers and models are listed A–Z by display name in Settings; **Add Provider** (presets + custom add) starts collapsed; the **Providers** and **Models** sections are collapsible (expanded by default). Custom Codex picker entries are exported in that order. |
 | `~/.codex/model-catalogs/custom-providers.json` | Codex-compatible picker export (`model_catalog_json`): native ChatGPT/Codex models plus custom entries. **Codex only renders custom entries in its picker when signed in** (free account is enough); signed out it shows a built-in fallback list and labels any active custom model as "Custom". Settings surfaces a sign-in hint (`SettingsStore.customModelsNeedSignIn`) when custom models exist but `auth.json` is absent. |
-| `~/.codexgateway/providers.json` | Provider endpoints + credentials. Optional `auth_kind`: omitted/`api_key` → Bearer key to `{base_url}/chat/completions`; `grok_oauth` → `GrokOAuthClient` (no key stored). Read **live** by the gateway per request (`ModelCatalog.resolveUpstream`), so provider/preset changes take effect immediately — **no Codex restart** (only model changes require one; see `SettingsStore.requiresCodexRestart`). |
+| `~/.codexgateway/providers.json` | Provider endpoints + credentials. Optional `auth_kind`: omitted/`api_key` → Bearer key to `{base_url}/chat/completions`; `anthropic` → Bearer plus `x-api-key` and `anthropic-version: 2023-06-01` to Anthropic's OpenAI-compat layer (`https://api.anthropic.com/v1` `/chat/completions` and `/models`); `grok_oauth` → `GrokOAuthClient` (no key stored). Read **live** by the gateway per request (`ModelCatalog.resolveUpstream`), so provider/preset changes take effect immediately — **no Codex restart** (only model changes require one; see `SettingsStore.requiresCodexRestart`). |
 | `~/.grok/auth.json` | Official Grok CLI OAuth session (not owned by CodexGateway). Used when a provider has `auth_kind = grok_oauth`. |
-| `~/.codexgateway/fetched_models.json` | Cached model lists per provider (OpenAI `/models`, or Cline Pass recommended-models feed); replaced on each fetch |
+| `~/.codexgateway/fetched_models.json` | Cached model lists per provider (OpenAI `/models`, Anthropic `/v1/models`, or Cline Pass recommended-models feed); replaced on each fetch |
 | `~/.codex/config.toml` | Codex config (managed blocks patched). `[model_providers.codexgateway].requires_openai_auth` is set from sign-in state: `false` when not signed in (skips Codex login — enables local-only Ollama/custom use), `true` when signed in (native GPT/ChatGPT pass-through). Legacy `codexbar` blocks are rewritten to `codexgateway` on refresh/patch. Automatic callers (startup, `CodexAuthWatcher`, restart) only **refresh** the block when it is already present (`refreshManagedConfigIfApplied`) — CodexGateway never silently injects into a fresh/native Codex; Settings' **Update Gateway Config** is the explicit opt-in. |
 | `~/.codex/auth.json` | Auth token for pass-through; also read by `CodexConfig.isSignedIn()` to decide `requires_openai_auth`; watched by `CodexAuthWatcher` |
 
@@ -229,7 +229,7 @@ Release assets: `CodexGateway-{tag}.app.zip`, `CodexGateway-{tag}-macOS.dmg` (no
 | Add gateway route | `GatewayServer.swift` |
 | Change translation logic | `Translator.swift` |
 | Model catalog / providers | `ModelCatalog.swift`, `ProviderPresets.swift`, `ProviderModelFetcher.swift`, `Paths.swift` |
-| Install provider preset | `PresetInstaller`, Settings window (provider only by default; **xAI Grok (OAuth)** also seeds a suggested model; **Cursor** validates API key → `CursorBridgeKeychain` + enables `CursorBridgeRuntime` on port **18788**). Cline Pass listing: `ProviderModelFetcher.fetchClinePassRecommended` → `https://api.cline.bot/api/v1/ai/cline/recommended-models` (no API key) |
+| Install provider preset | `PresetInstaller`, Settings window (provider only by default; **xAI Grok (OAuth)** also seeds a suggested model; **Cursor** validates API key → `CursorBridgeKeychain` + enables `CursorBridgeRuntime` on port **18788**). **Anthropic (Claude)** uses `auth_kind: anthropic` and fetches `GET https://api.anthropic.com/v1/models` (OpenAI `data[]`, plus `display_name`). Cline Pass listing: `ProviderModelFetcher.fetchClinePassRecommended` → `https://api.cline.bot/api/v1/ai/cline/recommended-models` (no API key) |
 | Custom provider Spark example | `CustomProviderExample` + Settings **Add Provider** → Add custom provider → “Fill Spark example” (`spark-deepseek` → `http://spark:8001/v1`) |
 | xAI Grok (OAuth) provider | `GrokOAuthSession` (`~/.grok/auth.json`, `grok models` refresh), `GrokOAuthClient` → `cli-chat-proxy.grok.com/v1/responses`; model list via `ProviderModelFetcher.fetchGrokOAuthModels` → `…/models-v2`. `GatewayServer` branches on `ProviderConfig.usesGrokOAuth`. Parallel to **xAI Grok (API)** preset. |
 | Cursor bridge (managed) | `CursorBridge` / `CursorBridgeRuntime` — Node `@cursor/sdk` sidecar on `http://127.0.0.1:18788/v1` (coexists with GrokBuild on 18787). API key in `~/Library/Application Support/CodexGateway/Secrets/cursor-api-key` (`CursorBridgeKeychain`); `providers.json` keeps `api_key: "local"` + `auth_kind: cursor_bridge`. Settings/Doctor probe Node ≥ 22.13 off the main actor (`probeNodeAsync`); missing/too-old shows Homebrew Terminal install + nodejs.org. Concurrent `startIfNeeded()` joins an in-flight start. Gateway Cursor proxy hops off `LoopbackHTTPServer`'s serial queue while the sidecar starts. `stop()` only SIGTERMs listeners whose command line contains `cursor-openai-bridge.mjs`. Bundled via `scripts/bundle-cursor-bridge.sh` (`npm ci`). |
@@ -256,7 +256,7 @@ Unit tests in `Tests/CodexGatewayTests/`:
 - `TranslatorTests` — translation, namespace mapping, think stripping
 - `CodexConfigTests` — managed block stripping
 - `ModelCatalogTests` — provider/model API parsing
-- `ProviderPresetsTests` — preset definitions, Grok OAuth install seed
+- `ProviderPresetsTests` — preset definitions (incl. Anthropic/Claude), Grok OAuth install seed, Anthropic auth headers
 - `CursorBridgeTests` — managed bridge port 18788, catalog filter, Node TLS, runtime helpers
 - `GrokOAuthSessionTests` — auth.json probe/parse/refresh stubs
 - `GrokOAuthClientTests` — Chat→Responses map, SSE→Chat conversion, 401 retry

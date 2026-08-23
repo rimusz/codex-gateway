@@ -2,7 +2,7 @@
 
 **Use any OpenAI-compatible model in Codex Desktop and Codex CLI — from a macOS menu bar app.**
 
-Codex Desktop and the Codex CLI normally talk only to OpenAI's own models. CodexGateway sits quietly in your menu bar and runs a tiny local gateway that lets both route to **third-party providers** (Cursor via a local bridge, xAI API key, Grok OAuth via the official Grok CLI, DeepSeek, OpenRouter, Z.ai, Kimi, Qwen, MiniMax, Cline Pass, …) or **local models** (Ollama) — while still passing native GPT/ChatGPT requests straight through to OpenAI. You configure providers and models in a native **Settings** window; Desktop and CLI then share the same gateway via `~/.codex/config.toml`.
+Codex Desktop and the Codex CLI normally talk only to OpenAI's own models. CodexGateway sits quietly in your menu bar and runs a tiny local gateway that lets both route to **third-party providers** (Cursor via a local bridge, Anthropic/Claude, xAI API key, Grok OAuth via the official Grok CLI, DeepSeek, OpenRouter, Z.ai, Kimi, Qwen, MiniMax, Cline Pass, …) or **local models** (Ollama) — while still passing native GPT/ChatGPT requests straight through to OpenAI. You configure providers and models in a native **Settings** window; Desktop and CLI then share the same gateway via `~/.codex/config.toml`.
 
 ![CodexGateway Settings and menu bar](docs/screenshots/settings-and-menu.png)
 
@@ -97,7 +97,9 @@ Everything lives in the **Settings** window — no browser needed. **Add Provide
 
 ### Providers
 
-Install a built-in preset from **Add Provider** (**Z.ai, Kimi, Qwen, Xiaomi MiMo, Cline Pass, MiniMax, DeepSeek, xAI Grok (API), xAI Grok (OAuth), OpenRouter, Ollama**) or **Add custom provider**. You're prompted for an API key when the provider needs one. Provider rows show a compact model count and status.
+Install a built-in preset from **Add Provider** (**Anthropic (Claude), Z.ai, Kimi, Qwen, Xiaomi MiMo, Cline Pass, MiniMax, DeepSeek, xAI Grok (API), xAI Grok (OAuth), OpenRouter, Ollama**) or **Add custom provider**. You're prompted for an API key when the provider needs one. Provider rows show a compact model count and status.
+
+**Anthropic (Claude)** uses Anthropic's OpenAI-compatible API at `https://api.anthropic.com/v1` with a Claude API key from [console.anthropic.com](https://console.anthropic.com/settings/keys). Settings fetches models from `GET /v1/models` and the gateway forwards chat to `/chat/completions` (no native Messages-API translator). Requests send Bearer plus `x-api-key` and `anthropic-version`.
 
 **xAI Grok (API) vs xAI Grok (OAuth):** keep them separate. **xAI Grok (API)** uses an API key against `api.x.ai` and fetches models from that API. **xAI Grok (OAuth)** uses the official Grok CLI session (`npm i -g @xai-official/grok` then `grok login`), forwards through xAI’s CLI chat proxy, and fetches the model list from the CLI OAuth catalog (`/models-v2`) — no key in `providers.json`. Both can be installed side by side.
 
@@ -114,6 +116,7 @@ Display names are auto-formatted into friendly, provider-prefixed names — Clin
 | `grok-4.5` (xAI API) | **xAI Grok 4.5 (API)** |
 | `grok-4.5` (xAI OAuth) | **xAI Grok 4.5 (OAuth)** |
 | `deepseek/deepseek-chat-v3-0324` (OpenRouter) | **OpenRouter DeepSeek Chat V3 0324** |
+| `claude-sonnet-5` (Anthropic) | **Anthropic Claude Sonnet 5** |
 
 Doubled vendor prefixes are collapsed, and any name you edit yourself is preserved.
 
@@ -167,7 +170,7 @@ Unsigned CI releases are published for manual install only.
 
 ## Using CodexGateway with [Zero](https://zero.gitlawb.com)
 
-[Zero](https://zero.gitlawb.com) is a terminal coding agent that supports any **OpenAI-compatible** API. You can point it at the CodexGateway gateway on the same Mac and use the models you configured in CodexGateway Settings — Cline Pass, Ollama, DeepSeek, xAI via your keys, and so on.
+[Zero](https://zero.gitlawb.com) is a terminal coding agent that supports any **OpenAI-compatible** API. You can point it at the CodexGateway gateway on the same Mac and use the models you configured in CodexGateway Settings — Anthropic/Claude, Cline Pass, Ollama, DeepSeek, xAI via your keys, and so on.
 
 CodexGateway must be **running** (menu bar icon present). The gateway is local-only:
 

@@ -392,6 +392,8 @@ extension ProviderPreset {
       return "Local · no API key"
     case .clinePass:
       return "Fetches Cline Pass catalog"
+    case .anthropic:
+      return "Claude API key · OpenAI-compat"
     default:
       return "OpenAI-compatible API key"
     }

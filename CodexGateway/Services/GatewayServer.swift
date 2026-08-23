@@ -135,7 +135,7 @@ final class GatewayServer {
       var urlRequest = URLRequest(url: url)
       urlRequest.httpMethod = "POST"
       urlRequest.setValue("application/json", forHTTPHeaderField: "Content-Type")
-      urlRequest.setValue("Bearer \(provider.api_key)", forHTTPHeaderField: "Authorization")
+      provider.applyUpstreamAuth(to: &urlRequest)
       urlRequest.httpBody = try? JSONSerialization.data(withJSONObject: chatBody)
 
       if stream {
@@ -385,7 +385,7 @@ final class GatewayServer {
         var urlRequest = URLRequest(url: URL(string: "\(resolved.provider.base_url.trimmingCharacters(in: CharacterSet(charactersIn: "/")))/chat/completions")!)
         urlRequest.httpMethod = "POST"
         urlRequest.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        urlRequest.setValue("Bearer \(resolved.provider.api_key)", forHTTPHeaderField: "Authorization")
+        resolved.provider.applyUpstreamAuth(to: &urlRequest)
         urlRequest.httpBody = try? JSONSerialization.data(withJSONObject: chat)
         URLSession.shared.dataTask(with: urlRequest) { data, urlResponse, error in
           guard let data else {

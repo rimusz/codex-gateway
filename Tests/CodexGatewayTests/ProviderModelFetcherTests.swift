@@ -11,6 +11,36 @@ final class ProviderModelFetcherTests: XCTestCase {
             ProviderModelFetcher.modelsURL(for: "https://api.deepseek.com/")?.absoluteString,
             "https://api.deepseek.com/models"
         )
+        XCTAssertEqual(
+            ProviderModelFetcher.modelsURL(for: "https://api.anthropic.com/v1")?.absoluteString,
+            "https://api.anthropic.com/v1/models"
+        )
+    }
+
+    func testModelsRequestUsesAnthropicAuthHeaders() throws {
+        let request = try XCTUnwrap(
+            ProviderModelFetcher.modelsRequest(
+                baseURL: "https://api.anthropic.com/v1",
+                apiKey: "sk-ant-fake",
+                authKind: .anthropic
+            )
+        )
+        XCTAssertEqual(request.url?.absoluteString, "https://api.anthropic.com/v1/models")
+        XCTAssertEqual(request.value(forHTTPHeaderField: "Authorization"), "Bearer sk-ant-fake")
+        XCTAssertEqual(request.value(forHTTPHeaderField: "x-api-key"), "sk-ant-fake")
+        XCTAssertEqual(request.value(forHTTPHeaderField: "anthropic-version"), "2023-06-01")
+        XCTAssertEqual(request.value(forHTTPHeaderField: "api-key"), "sk-ant-fake")
+
+        let bearer = try XCTUnwrap(
+            ProviderModelFetcher.modelsRequest(
+                baseURL: "https://api.deepseek.com",
+                apiKey: "sk-test",
+                authKind: .apiKey
+            )
+        )
+        XCTAssertEqual(bearer.value(forHTTPHeaderField: "Authorization"), "Bearer sk-test")
+        XCTAssertNil(bearer.value(forHTTPHeaderField: "x-api-key"))
+        XCTAssertNil(bearer.value(forHTTPHeaderField: "anthropic-version"))
     }
 
     func testParseOpenAIStyleModelsResponse() throws {
@@ -28,6 +58,35 @@ final class ProviderModelFetcherTests: XCTestCase {
         let models = try XCTUnwrap(ProviderModelFetcher.parse(data))
         XCTAssertEqual(models.map(\.id), ["a-model", "z-model"])
         XCTAssertEqual(models.last?.ownedBy, "provider")
+    }
+
+    func testParseAnthropicModelsListUsesDisplayName() throws {
+        let data = """
+        {
+          "data": [
+            {
+              "type": "model",
+              "id": "claude-sonnet-5",
+              "display_name": "Claude Sonnet 5",
+              "created_at": "2026-01-01T00:00:00Z"
+            },
+            {
+              "type": "model",
+              "id": "claude-haiku-4-5",
+              "display_name": "Claude Haiku 4.5"
+            },
+            {
+              "id": "claude-sonnet-5"
+            }
+          ],
+          "has_more": false
+        }
+        """.data(using: .utf8)!
+
+        let models = try XCTUnwrap(ProviderModelFetcher.parse(data))
+        XCTAssertEqual(models.map(\.id), ["claude-haiku-4-5", "claude-sonnet-5"])
+        XCTAssertEqual(models.first?.ownedBy, "Claude Haiku 4.5")
+        XCTAssertEqual(models.last?.ownedBy, "Claude Sonnet 5")
     }
 
     func testParseBareArrayAndModelFallback() throws {

@@ -5,6 +5,28 @@ enum ProviderAuthKind: String, Codable, Sendable {
   case apiKey = "api_key"
   case grokOAuth = "grok_oauth"
   case cursorBridge = "cursor_bridge"
+  /// Claude OpenAI-compat + Models API: Bearer, `x-api-key`, and `anthropic-version`.
+  case anthropic = "anthropic"
+}
+
+/// Shared upstream auth headers. Anthropic's `/v1/models` and native API require
+/// `x-api-key` + `anthropic-version`; OpenAI-compat chat also accepts Bearer.
+enum ProviderAuth {
+  static let anthropicAPIVersion = "2023-06-01"
+
+  static func apply(
+    to request: inout URLRequest,
+    apiKey: String,
+    kind: ProviderAuthKind
+  ) {
+    let key = apiKey.trimmingCharacters(in: .whitespacesAndNewlines)
+    guard !key.isEmpty else { return }
+    request.setValue("Bearer \(key)", forHTTPHeaderField: "Authorization")
+    if kind == .anthropic {
+      request.setValue(key, forHTTPHeaderField: "x-api-key")
+      request.setValue(anthropicAPIVersion, forHTTPHeaderField: "anthropic-version")
+    }
+  }
 }
 
 /// Reads the official Grok CLI session (`~/.grok/auth.json`) and refreshes via `grok models`.
@@ -241,7 +263,13 @@ extension ProviderConfig {
 
   var usesGrokOAuth: Bool { resolvedAuthKind == .grokOAuth }
 
+  var usesAnthropicAuth: Bool { resolvedAuthKind == .anthropic }
+
   var usesCursorBridge: Bool {
     resolvedAuthKind == .cursorBridge || name == ProviderPreset.cursor.providerID
+  }
+
+  func applyUpstreamAuth(to request: inout URLRequest) {
+    ProviderAuth.apply(to: &request, apiKey: api_key, kind: resolvedAuthKind)
   }
 }

@@ -67,21 +67,38 @@ enum ProviderModelFetcher {
       }
       guard !skipIDs.contains(id.lowercased()) else { continue }
       guard seen.insert(id).inserted else { continue }
-      models.append(FetchedModel(id: id, ownedBy: entry["owned_by"] as? String))
+      let ownedBy = (entry["owned_by"] as? String)
+        ?? (entry["display_name"] as? String)
+      models.append(FetchedModel(id: id, ownedBy: ownedBy))
     }
     return models.sorted { $0.id.localizedCaseInsensitiveCompare($1.id) == .orderedAscending }
   }
 
-  static func fetch(baseURL: String, apiKey: String) async throws -> [FetchedModel] {
-    guard let url = modelsURL(for: baseURL) else { throw FetchError.invalidURL }
-
+  /// Builds `GET {base_url}/models` with provider auth. Exposed for unit tests (no network).
+  static func modelsRequest(
+    baseURL: String,
+    apiKey: String,
+    authKind: ProviderAuthKind = .apiKey
+  ) -> URLRequest? {
+    guard let url = modelsURL(for: baseURL) else { return nil }
     var request = URLRequest(url: url)
     request.timeoutInterval = 15
     request.setValue("application/json", forHTTPHeaderField: "Accept")
     let key = apiKey.trimmingCharacters(in: .whitespacesAndNewlines)
+    ProviderAuth.apply(to: &request, apiKey: key, kind: authKind)
     if !key.isEmpty {
-      request.setValue("Bearer \(key)", forHTTPHeaderField: "Authorization")
       request.setValue(key, forHTTPHeaderField: "api-key")
+    }
+    return request
+  }
+
+  static func fetch(
+    baseURL: String,
+    apiKey: String,
+    authKind: ProviderAuthKind = .apiKey
+  ) async throws -> [FetchedModel] {
+    guard let request = modelsRequest(baseURL: baseURL, apiKey: apiKey, authKind: authKind) else {
+      throw FetchError.invalidURL
     }
 
     let data: Data
@@ -157,7 +174,11 @@ enum ProviderModelFetcher {
     if ProviderPreset.matching(providerID: provider.name)?.supportsLiveCatalogRefresh == true {
       return try await fetchClinePassRecommended()
     }
-    return try await fetch(baseURL: provider.base_url, apiKey: provider.api_key)
+    return try await fetch(
+      baseURL: provider.base_url,
+      apiKey: provider.api_key,
+      authKind: provider.resolvedAuthKind
+    )
   }
 
   /// Grok CLI OAuth catalog: `GET {base}/models-v2` with session from `~/.grok/auth.json`.

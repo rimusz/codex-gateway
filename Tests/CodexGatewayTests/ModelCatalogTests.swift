@@ -13,6 +13,17 @@ final class ModelCatalogTests: XCTestCase {
         XCTAssertEqual(provider?.name, "minimax")
         XCTAssertEqual(provider?.base_url, "https://api.minimax.io/v1")
         XCTAssertEqual(provider?.api_key, "sk-test")
+
+        let anthropic = ModelCatalog.provider(from: [
+            "name": "anthropic",
+            "display_name": "Anthropic (Claude)",
+            "base_url": "https://api.anthropic.com/v1",
+            "api_key": "sk-ant-test",
+            "auth_kind": "anthropic"
+        ])
+        XCTAssertEqual(anthropic?.auth_kind, "anthropic")
+        XCTAssertEqual(anthropic?.resolvedAuthKind, .anthropic)
+        XCTAssertTrue(anthropic?.usesAnthropicAuth == true)
     }
 
     func testProviderParsingTrimsWhitespace() {
@@ -53,6 +64,26 @@ final class ModelCatalogTests: XCTestCase {
         XCTAssertEqual(models[0].slug, "ollama/llama3.2")
         XCTAssertEqual(models[0].model, "llama3.2")
         XCTAssertEqual(models[0].provider, "ollama")
+    }
+
+    func testCatalogModelsFromFetchedAnthropicUsesBrandAndSlug() {
+        let provider = ProviderConfig(
+            name: "anthropic",
+            display_name: "Anthropic (Claude)",
+            base_url: "https://api.anthropic.com/v1",
+            api_key: "sk-ant-test",
+            vision_model: nil,
+            auth_kind: "anthropic"
+        )
+        let models = ModelCatalog.catalogModels(
+            from: [FetchedModel(id: "claude-sonnet-5", ownedBy: "Claude Sonnet 5")],
+            for: provider
+        )
+        XCTAssertEqual(models.count, 1)
+        XCTAssertEqual(models[0].slug, "anthropic/claude-sonnet-5")
+        XCTAssertEqual(models[0].model, "claude-sonnet-5")
+        XCTAssertEqual(models[0].provider, "anthropic")
+        XCTAssertEqual(models[0].display_name, "Anthropic Claude Sonnet 5")
     }
 
     func testProviderDisplayLabelPrefersStoredNameOverPreset() {
@@ -253,6 +284,11 @@ final class ModelCatalogTests: XCTestCase {
         XCTAssertEqual(
             ModelCatalog.prettyDisplayName(from: "deepseek/deepseek-chat-v3-0324", providerID: "openrouter"),
             "OpenRouter DeepSeek Chat V3 0324"
+        )
+        XCTAssertEqual(ModelCatalog.providerBrand(for: "anthropic"), "Anthropic")
+        XCTAssertEqual(
+            ModelCatalog.prettyDisplayName(from: "claude-sonnet-5", providerID: "anthropic"),
+            "Anthropic Claude Sonnet 5"
         )
     }
 
