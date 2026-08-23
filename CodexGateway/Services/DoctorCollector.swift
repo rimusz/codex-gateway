@@ -39,9 +39,15 @@ enum DoctorCollector {
     inputs.cursorBridgeReachable = cursorInstalled && cursorProbe.isOnline
 
     inputs.grokOAuthInstalled = grokInstalled
-    inputs.grokOAuthConfigured = GrokOAuthSession.status().configured
     inputs.claudeCodeInstalled = claudeCodeInstalled
-    inputs.claudeCodeConfigured = claudeCodeInstalled && ClaudeCodeSession.status().configured
+    let sessionFlags = await Task.detached(priority: .userInitiated) {
+      (
+        GrokOAuthSession.status().configured,
+        claudeCodeInstalled ? ClaudeCodeSession.status().configured : false
+      )
+    }.value
+    inputs.grokOAuthConfigured = sessionFlags.0
+    inputs.claudeCodeConfigured = sessionFlags.1
     return inputs
   }
 

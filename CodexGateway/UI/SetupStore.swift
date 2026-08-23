@@ -140,11 +140,11 @@ final class SetupStore: ObservableObject {
   }
 
   func refreshClaudeCodeStatus() {
-    Task {
-      let status = await Task.detached(priority: .userInitiated) {
-        ClaudeCodeSession.status()
-      }.value
-      claudeCodeStatus = status
+    Task.detached(priority: .userInitiated) { [weak self] in
+      let status = ClaudeCodeSession.status()
+      await MainActor.run {
+        self?.claudeCodeStatus = status
+      }
     }
   }
 
