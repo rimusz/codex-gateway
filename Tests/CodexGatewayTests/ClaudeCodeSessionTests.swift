@@ -81,6 +81,30 @@ final class ClaudeCodeSessionTests: XCTestCase {
     XCTAssertEqual(session?.sourcePath, ClaudeCodeSession.keychainSourceLabel)
   }
 
+  func testLoadUsableSessionSkipsExpiredFileAndUsesKeychain() throws {
+    let expired = Date().addingTimeInterval(-60).timeIntervalSince1970 * 1000
+    let file = credsURL()
+    try Data(#"{"claudeAiOauth":{"accessToken":"sk-ant-oat-stale-file","expiresAt":\#(expired)}}"#.utf8).write(to: file)
+    let missing = credsURL("legacy.json")
+    let usable = ClaudeCodeSession.loadUsableSession(
+      credentialsURL: file,
+      legacyURL: missing,
+      environment: [:],
+      readKeychain: { Data(#"{"claudeAiOauth":{"accessToken":"sk-ant-oat-fresh-keychain","expiresAt":1893456000000}}"#.utf8) }
+    )
+    XCTAssertEqual(usable?.accessToken, "sk-ant-oat-fresh-keychain")
+    XCTAssertEqual(usable?.sourcePath, ClaudeCodeSession.keychainSourceLabel)
+    let status = ClaudeCodeSession.status(
+      credentialsURL: file,
+      legacyURL: missing,
+      environment: [:],
+      readKeychain: { Data(#"{"claudeAiOauth":{"accessToken":"sk-ant-oat-fresh-keychain","expiresAt":1893456000000}}"#.utf8) }
+    )
+    XCTAssertTrue(status.configured)
+    XCTAssertEqual(status.sourcePath, ClaudeCodeSession.keychainSourceLabel)
+    XCTAssertNil(status.setupHint)
+  }
+
   func testLoadUsableSessionRejectsExpiredFixture() throws {
     let expired = Date().addingTimeInterval(-60).timeIntervalSince1970 * 1000
     let file = credsURL()
@@ -116,6 +140,38 @@ final class ClaudeCodeSessionTests: XCTestCase {
     )
     XCTAssertFalse(status.configured)
     XCTAssertTrue(status.setupHint?.contains("expired") == true)
+  }
+
+  func testLoadUsableSessionDoesNotReadKeychainWhenEnvIsUsable() {
+    let missing = credsURL("missing.json")
+    var keychainReads = 0
+    let usable = ClaudeCodeSession.loadUsableSession(
+      credentialsURL: missing,
+      legacyURL: missing,
+      environment: ["CLAUDE_CODE_OAUTH_TOKEN": "sk-ant-oat-env"],
+      readKeychain: {
+        keychainReads += 1
+        return Data(#"{"claudeAiOauth":{"accessToken":"sk-ant-oat-keychain"}}"#.utf8)
+      }
+    )
+    XCTAssertEqual(usable?.accessToken, "sk-ant-oat-env")
+    XCTAssertEqual(keychainReads, 0)
+  }
+
+  func testStatusHintUsesHighestPrioritySource() throws {
+    let expired = Date().addingTimeInterval(-60).timeIntervalSince1970 * 1000
+    let file = credsURL()
+    try Data(#"{"claudeAiOauth":{"accessToken":"sk-ant-oat-stale","expiresAt":\#(expired)}}"#.utf8).write(to: file)
+    let status = ClaudeCodeSession.status(
+      credentialsURL: file,
+      legacyURL: credsURL("legacy.json"),
+      environment: ["CLAUDE_CODE_OAUTH_TOKEN": "sk-ant-console"],
+      readKeychain: { nil }
+    )
+    XCTAssertFalse(status.configured)
+    XCTAssertEqual(status.sourcePath, ClaudeCodeSession.envSourceLabel)
+    XCTAssertTrue(status.setupHint?.contains("Console") == true)
+    XCTAssertFalse(status.setupHint?.contains("expired") == true)
   }
 
   func testLoadUsableSessionRejectsConsoleKeyFixture() {
