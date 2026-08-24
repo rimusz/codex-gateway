@@ -103,31 +103,41 @@ enum ClaudeCodeSession {
     !session.isExpired && session.looksLikeOAuthAccessToken
   }
 
-  /// All local Claude Code sessions, env → credentials file → legacy file → Keychain.
-  /// Claude CLI often refreshes Keychain while leaving a stale `~/.claude/.credentials.json`.
+  /// Local Claude Code sessions in priority order: env → credentials file → legacy file → Keychain.
+  /// `stop` ends the walk early (hot path: stop after the first usable token so Keychain is skipped).
   static func loadSessions(
     credentialsURL: URL = defaultCredentialsURL,
     legacyURL: URL = legacyCredentialsURL,
     environment: [String: String] = ProcessInfo.processInfo.environment,
-    readKeychain: () -> Data? = { readMacOSKeychain() }
+    readKeychain: () -> Data? = { readMacOSKeychain() },
+    stop: (Session) -> Bool = { _ in false }
   ) -> [Session] {
     var sessions: [Session] = []
+    func consider(_ session: Session) -> Bool {
+      sessions.append(session)
+      return stop(session)
+    }
     if let env = environment["CLAUDE_CODE_OAUTH_TOKEN"]?.trimmingCharacters(in: .whitespacesAndNewlines),
        !env.isEmpty {
-      sessions.append(Session(accessToken: env, expiresAt: nil, sourcePath: envSourceLabel))
-    }
-    for url in [credentialsURL, legacyURL] {
-      if let data = try? Data(contentsOf: url), let session = parseCredentials(data) {
-        sessions.append(
-          Session(accessToken: session.accessToken, expiresAt: session.expiresAt, sourcePath: url.path)
-        )
+      if consider(Session(accessToken: env, expiresAt: nil, sourcePath: envSourceLabel)) {
+        return sessions
       }
     }
-    if let data = readKeychain(), let session = parseCredentials(data) {
-      sessions.append(
+    for url in [credentialsURL, legacyURL] {
+      if let data = try? Data(contentsOf: url), let parsed = parseCredentials(data) {
+        let session = Session(
+          accessToken: parsed.accessToken,
+          expiresAt: parsed.expiresAt,
+          sourcePath: url.path
+        )
+        if consider(session) { return sessions }
+      }
+    }
+    if let data = readKeychain(), let parsed = parseCredentials(data) {
+      _ = consider(
         Session(
-          accessToken: session.accessToken,
-          expiresAt: session.expiresAt,
+          accessToken: parsed.accessToken,
+          expiresAt: parsed.expiresAt,
           sourcePath: keychainSourceLabel
         )
       )
@@ -146,12 +156,14 @@ enum ClaudeCodeSession {
       credentialsURL: credentialsURL,
       legacyURL: legacyURL,
       environment: environment,
-      readKeychain: readKeychain
+      readKeychain: readKeychain,
+      stop: { _ in true }
     ).first
   }
 
   /// Live token for upstream calls. Skips expired / non-OAuth sources so a stale
   /// `~/.claude/.credentials.json` does not hide a refreshed Keychain login.
+  /// Stops at the first usable source so a valid env/file token does not spawn `security`.
   static func loadUsableSession(
     credentialsURL: URL = defaultCredentialsURL,
     legacyURL: URL = legacyCredentialsURL,
@@ -162,7 +174,8 @@ enum ClaudeCodeSession {
       credentialsURL: credentialsURL,
       legacyURL: legacyURL,
       environment: environment,
-      readKeychain: readKeychain
+      readKeychain: readKeychain,
+      stop: isUsable
     ).first(where: isUsable)
   }
 
@@ -190,22 +203,29 @@ enum ClaudeCodeSession {
       credentialsURL: credentialsURL,
       legacyURL: legacyURL,
       environment: environment,
-      readKeychain: readKeychain
+      readKeychain: readKeychain,
+      stop: isUsable
     )
     if let usable = sessions.first(where: isUsable) {
       let source = usable.sourcePath.isEmpty ? credentialsURL.path : usable.sourcePath
       return Status(configured: true, sourcePath: source, setupHint: nil)
     }
-    let reportedSource = sessions.first.flatMap { $0.sourcePath.isEmpty ? nil : $0.sourcePath }
-      ?? credentialsURL.path
-    if sessions.contains(where: { $0.isExpired }) {
+    guard let first = sessions.first else {
+      return Status(
+        configured: false,
+        sourcePath: credentialsURL.path,
+        setupHint: "Run `\(loginCommand)` (or Claude Code /login). Credentials stay in ~/.claude or the macOS Keychain — not in providers.json."
+      )
+    }
+    let reportedSource = first.sourcePath.isEmpty ? credentialsURL.path : first.sourcePath
+    if first.isExpired {
       return Status(
         configured: false,
         sourcePath: reportedSource,
         setupHint: "Claude Code login expired. Run `\(loginCommand)` in Terminal."
       )
     }
-    if sessions.contains(where: { !$0.looksLikeOAuthAccessToken }) {
+    if !first.looksLikeOAuthAccessToken {
       return Status(
         configured: false,
         sourcePath: reportedSource,
