@@ -132,7 +132,7 @@ Doubled vendor prefixes are collapsed, and any name you edit yourself is preserv
 
 Only when you **add, edit, or delete a model** — those change Codex's exported model catalog (Desktop picker + CLI), and Settings will surface a **Restart Codex** button. **Provider** changes (including installing a preset) take effect **immediately** — the gateway reads endpoints and keys live from `~/.codexgateway/providers.json`, so no restart is required.
 
-The menu-bar **Restart Codex** action (⌘R) always asks for confirmation first.
+The menu-bar **Restart Codex** action (⌘R) always asks for confirmation first. It restarts Codex Desktop and the Codex CLI daemon (`codex app-server daemon restart`), so a new terminal reloads the same catalog.
 
 ### Open at Login
 
@@ -163,7 +163,7 @@ CodexGateway keeps its own data under `~/.codexgateway/` and writes only a clear
 | `~/.codex/config.toml` | Codex config — CodexGateway patches a managed block only |
 | `~/.codex/model-catalogs/custom-providers.json` | Codex model catalog export for Desktop + CLI (native models **plus** your custom ones) |
 
-The exported catalog always includes the native ChatGPT/Codex models, so installing CodexGateway never hides the built-in choices in Desktop or CLI.
+The exported catalog includes the Codex models shipped with the installed CLI (`codex debug models --bundled`) plus your custom models. Codex replaces its picker with that file, so the built-in models are copied in rather than left to Codex's own list. If the CLI cannot be read, the export falls back to GPT-5.5, GPT-5.4, GPT-5.4 Mini, GPT-5.3 Codex, GPT-5.2 Codex, and GPT-5.2.
 
 ## Updates
 

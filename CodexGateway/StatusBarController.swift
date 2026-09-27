@@ -18,7 +18,7 @@ enum AppStatus {
 
 enum RestartCodexConfirmation {
     static let title = "Restart Codex?"
-    static let message = "This will restart Codex Desktop so it can reload provider and model configuration."
+    static let message = "This will restart Codex Desktop and the Codex CLI daemon so both reload provider and model configuration."
 
     static func confirm() -> Bool {
         let shouldRestoreAccessory = NSApp.activationPolicy() == .accessory

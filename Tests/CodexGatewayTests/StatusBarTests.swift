@@ -22,7 +22,44 @@ final class StatusBarTests: XCTestCase {
     func testRestartConfirmationCopyMentionsCodexDesktop() {
         XCTAssertEqual(RestartCodexConfirmation.title, "Restart Codex?")
         XCTAssertTrue(RestartCodexConfirmation.message.contains("Codex Desktop"))
+        XCTAssertTrue(RestartCodexConfirmation.message.contains("CLI daemon"))
         XCTAssertTrue(RestartCodexConfirmation.message.contains("provider and model configuration"))
+    }
+
+    func testCLIDaemonRestartUsesResolvedCodexBinary() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("codex-cli-daemon-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let binary = root.appendingPathComponent("codex")
+        try Data().write(to: binary)
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: binary.path)
+
+        XCTAssertEqual(
+            CodexCLIDaemon.resolve(candidates: [binary.path], path: ""),
+            binary.path
+        )
+        XCTAssertNil(CodexCLIDaemon.resolve(candidates: [root.appendingPathComponent("missing").path], path: ""))
+
+        var launched: (String, [String])?
+        CodexCLIDaemon.restart(
+            executable: { binary.path },
+            runner: { launched = ($0, $1) }
+        )
+        XCTAssertEqual(launched?.0, binary.path)
+        XCTAssertEqual(launched?.1, CodexCLIDaemon.restartArguments)
+
+        var didRun = false
+        CodexCLIDaemon.restart(
+            executable: { nil },
+            runner: { _, _ in didRun = true }
+        )
+        XCTAssertFalse(didRun)
+
+        CodexCLIDaemon.restart(
+            executable: { binary.path },
+            runner: { _, _ in throw CocoaError(.fileNoSuchFile) }
+        )
     }
 
     func testUpdateMenuTitleReflectsActionableUpdate() {

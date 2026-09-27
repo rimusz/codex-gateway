@@ -8,6 +8,60 @@ enum CodexBinary {
   }
 }
 
+enum CodexCLIDaemon {
+  static let restartArguments = ["app-server", "daemon", "restart"]
+  static let defaultCandidates = [
+    "/opt/homebrew/bin/codex",
+    "/usr/local/bin/codex",
+  ]
+
+  static func resolve(
+    fileManager: FileManager = .default,
+    candidates: [String] = defaultCandidates,
+    path: String = ProcessInfo.processInfo.environment["PATH"] ?? ""
+  ) -> String? {
+    let pathCandidates = path.split(separator: ":").map { "\($0)/codex" }
+    return (candidates + pathCandidates).first { fileManager.isExecutableFile(atPath: $0) }
+  }
+
+  /// Reloads the long-lived CLI app-server. A new terminal attaches to that process,
+  /// so restarting only Codex Desktop leaves the CLI on the previous model catalog.
+  static func restart(
+    executable: () -> String? = { resolve() },
+    runner: (String, [String]) throws -> Void = run
+  ) {
+    guard let path = executable() else {
+      GatewayLog.info("Codex CLI is not installed; skipped daemon restart")
+      return
+    }
+    do {
+      try runner(path, restartArguments)
+    } catch {
+      GatewayLog.error("Failed to restart Codex CLI daemon: \(error.localizedDescription)")
+    }
+  }
+
+  private static func run(executable: String, arguments: [String]) throws {
+    let process = Process()
+    process.executableURL = URL(fileURLWithPath: executable)
+    process.arguments = arguments
+    var env = ProcessInfo.processInfo.environment
+    env["HOME"] = Paths.home
+    process.environment = env
+    process.standardOutput = Pipe()
+    process.standardError = Pipe()
+    try process.run()
+    process.waitUntilExit()
+    guard process.terminationStatus == 0 else {
+      throw NSError(
+        domain: "CodexCLIDaemon",
+        code: Int(process.terminationStatus),
+        userInfo: [NSLocalizedDescriptionKey: "codex app-server daemon restart exited \(process.terminationStatus)"]
+      )
+    }
+  }
+}
+
 final class CodexAppServer {
   static let shared = CodexAppServer()
 
@@ -94,6 +148,7 @@ final class CodexAppServer {
     // Guarded so a restart never re-injects into a native Codex (and so a reset
     // isn't immediately undone).
     CodexConfig.refreshManagedConfigIfApplied()
+    CodexCLIDaemon.restart()
     let script = """
     tell application "Codex" to quit
   delay 1
