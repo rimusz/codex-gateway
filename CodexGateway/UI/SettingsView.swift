@@ -179,7 +179,7 @@ struct SettingsView: View {
           }
           .controlSize(.small)
           .buttonStyle(.borderedProminent)
-          .help("Restart Codex Desktop so it reloads the updated providers and models")
+          .help("Restart Codex Desktop and the CLI daemon so both reload the updated providers and models")
         }
         if store.statusMessage != nil {
           Button {
