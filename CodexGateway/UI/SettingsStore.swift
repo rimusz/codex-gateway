@@ -71,7 +71,7 @@ final class SettingsStore: ObservableObject {
     }
     Task.detached(priority: .userInitiated) { [weak self] in
       let status = ClaudeCodeSession.status()
-      await MainActor.run {
+      await MainActor.run { [weak self] in
         self?.claudeCodeStatus = status
       }
     }
