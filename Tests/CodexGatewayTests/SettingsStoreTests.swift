@@ -49,7 +49,7 @@ final class SettingsStoreTests: XCTestCase {
         XCTAssertTrue(didReset)
         XCTAssertTrue(didRestart)
         XCTAssertFalse(store.needsCodexRestart)
-        XCTAssertEqual(store.statusMessage, "Codex config reset — your providers and models are kept. Codex restart requested.")
+        XCTAssertEqual(store.statusMessage, "Codex config reset — your providers and models are kept. Restarting the Codex app and CLI daemon.")
     }
 
     func testUpdateGatewayConfigSyncsPatchesAndRestarts() {
@@ -71,7 +71,7 @@ final class SettingsStoreTests: XCTestCase {
         XCTAssertTrue(didPatch)
         XCTAssertTrue(didRestart)
         XCTAssertFalse(store.needsCodexRestart)
-        XCTAssertEqual(store.statusMessage, "Codex config updated with your models. Codex restart requested.")
+        XCTAssertEqual(store.statusMessage, "Codex config updated with your models. Restarting the Codex app and CLI daemon.")
     }
 
     func testApplyGatewayConfigDoesNotRestart() throws {
@@ -152,7 +152,7 @@ final class SettingsStoreTests: XCTestCase {
 
         XCTAssertTrue(didRestart)
         XCTAssertFalse(store.needsCodexRestart)
-        XCTAssertEqual(store.statusMessage, "Codex restart requested.")
+        XCTAssertEqual(store.statusMessage, "Restarting the Codex app and CLI daemon.")
     }
 
     func testDefaultSettingsStoreHasNoPendingRestart() {

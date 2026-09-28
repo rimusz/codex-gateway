@@ -51,7 +51,7 @@ Always use Computer Use to test changes. Tooling order:
 2. Open Settings (menu bar → **Settings**, or System Events click on status item menu bar 2).
 3. Snapshot the Settings window (and sheets) — drive UI via `@refs` (click / type / wait).
 4. Exercise the surface you changed (presets, providers, Fetch models, Add model, menu items, status copy). For diagnostics, open **Doctor…** (⌘D) and confirm the relevant checks.
-5. For Codex Desktop effects: restart Codex, then verify with snapshot and/or screenshot (chat canvas has no a11y tree).
+5. For Codex picker effects: restart the Codex app and the CLI daemon (menu **Restart Codex**, or Update/Reset Gateway Config), then verify with snapshot and/or screenshot (chat canvas has no a11y tree).
 
 ### Tooling notes
 

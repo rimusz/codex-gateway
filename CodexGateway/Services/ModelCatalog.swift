@@ -108,7 +108,7 @@ struct ProvidersFile: Codable {
   var providers: [ProviderConfig]
 }
 
-private final class BundledCommandOutput: @unchecked Sendable {
+private final class BundledSlugOutput: @unchecked Sendable {
   private let lock = NSLock()
   private var storage: Data?
 
@@ -204,8 +204,8 @@ final class ModelCatalog {
   }
 
   /// Exact catalog slug first; then a unique unprefixed match on upstream id or
-  /// `provider/model` suffix. Native Codex slugs (`gpt-5.5`, …) never match a
-  /// custom alias, so ChatGPT pass-through stays intact.
+  /// `provider/model` suffix. Native Codex slugs, including ones shipped after
+  /// the built-in GPT-5 list, never match a custom alias.
   static func findModel(requested: String, in models: [CatalogModel]) -> CatalogModel? {
     let needle = requested.trimmingCharacters(in: .whitespacesAndNewlines)
     guard !needle.isEmpty else { return nil }
@@ -221,7 +221,97 @@ final class ModelCatalog {
   }
 
   static func isNativeCodexSlug(_ slug: String) -> Bool {
-    nativeModelsForExport().contains { $0.slug == slug }
+    nativeCodexSlugs.contains(slug) || bundledNativeSlugs().contains(slug)
+  }
+
+  /// Slugs from `codex debug models --bundled`. Cached after the first read.
+  /// A stuck CLI cannot block longer than `bundledSlugCommandTimeout`. These
+  /// slugs are not added to the custom picker.
+  static func bundledNativeSlugs(
+    load: () -> Set<String> = loadBundledNativeSlugs
+  ) -> Set<String> {
+    bundledSlugLock.lock()
+    defer { bundledSlugLock.unlock() }
+    if let cachedBundledNativeSlugs { return cachedBundledNativeSlugs }
+    let loaded = load()
+    cachedBundledNativeSlugs = loaded
+    return loaded
+  }
+
+  static func resetBundledNativeSlugs() {
+    bundledSlugLock.lock()
+    cachedBundledNativeSlugs = nil
+    bundledSlugLock.unlock()
+  }
+
+  static func nativeSlugs(fromBundledJSON data: Data) -> Set<String> {
+    guard let root = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+          let models = root["models"] as? [[String: Any]] else {
+      return []
+    }
+    return Set(models.compactMap { model in
+      let slug = (model["slug"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines)
+      return slug?.isEmpty == false ? slug : nil
+    })
+  }
+
+  static let bundledSlugCommandTimeout: TimeInterval = 5
+
+  static func runBundledSlugCommand(
+    _ executable: String,
+    arguments: [String] = ["debug", "models", "--bundled"],
+    timeout: TimeInterval = bundledSlugCommandTimeout
+  ) throws -> Data {
+    let process = Process()
+    process.executableURL = URL(fileURLWithPath: executable)
+    process.arguments = arguments
+    var env = ProcessInfo.processInfo.environment
+    env["HOME"] = Paths.home
+    process.environment = env
+    let stdout = Pipe()
+    process.standardOutput = stdout
+    process.standardError = FileHandle.nullDevice
+    let exited = DispatchSemaphore(value: 0)
+    process.terminationHandler = { _ in exited.signal() }
+    try process.run()
+
+    let output = BundledSlugOutput()
+    DispatchQueue.global(qos: .userInitiated).async {
+      output.set(stdout.fileHandleForReading.readDataToEndOfFile())
+    }
+    if exited.wait(timeout: .now() + timeout) == .timedOut {
+      process.terminate()
+      if exited.wait(timeout: .now() + 1) == .timedOut {
+        kill(process.processIdentifier, SIGKILL)
+        _ = exited.wait(timeout: .now() + 1)
+      }
+      throw NSError(
+        domain: "CodexBundledSlugs",
+        code: Int(SIGTERM),
+        userInfo: [NSLocalizedDescriptionKey: "codex debug models --bundled timed out after \(timeout)s"]
+      )
+    }
+    let deadline = Date().addingTimeInterval(1)
+    while output.get() == nil, Date() < deadline {
+      Thread.sleep(forTimeInterval: 0.01)
+    }
+    guard process.terminationStatus == 0, let data = output.get() else {
+      throw NSError(
+        domain: "CodexBundledSlugs",
+        code: Int(process.terminationStatus),
+        userInfo: [NSLocalizedDescriptionKey: "codex debug models --bundled exited \(process.terminationStatus)"]
+      )
+    }
+    return data
+  }
+
+  private static let bundledSlugLock = NSLock()
+  private static var cachedBundledNativeSlugs: Set<String>?
+
+  private static func loadBundledNativeSlugs() -> Set<String> {
+    guard let executable = CodexCLIDaemon.resolve() else { return [] }
+    guard let data = try? runBundledSlugCommand(executable) else { return [] }
+    return nativeSlugs(fromBundledJSON: data)
   }
 
   private static func stringID(_ raw: Any?) -> String? {
@@ -521,133 +611,15 @@ final class ModelCatalog {
     )
   }
 
-  static func codexCatalog(
-    from catalog: ModelCatalogFile,
-    nativeModels: [CodexCatalogModel]? = nil
-  ) -> CodexCatalogFile {
-    CodexCatalogFile(models: codexPickerModels(from: catalog, nativeModels: nativeModels))
+  static func codexCatalog(from catalog: ModelCatalogFile) -> CodexCatalogFile {
+    CodexCatalogFile(models: codexPickerModels(from: catalog))
   }
 
-  static func codexPickerModels(
-    from catalog: ModelCatalogFile,
-    nativeModels: [CodexCatalogModel]? = nil
-  ) -> [CodexCatalogModel] {
-    let customModels = codexCustomModels(from: catalog)
-    let customSlugs = Set(customModels.map(\.slug))
-    let native = nativeModels ?? nativeModelsForExport()
-    return native.filter { !customSlugs.contains($0.slug) } + customModels
-  }
-
-  /// Current Codex built-ins (`codex debug models --bundled`), or the frozen GPT-5 list
-  /// when the CLI is unavailable. Codex replaces its picker with this export, so the
-  /// native entries have to travel with the custom ones.
-  static func nativeModelsForExport(
-    loadBundled: () -> [CodexCatalogModel] = loadBundledCodexModels
-  ) -> [CodexCatalogModel] {
-    bundledModelsLock.lock()
-    defer { bundledModelsLock.unlock() }
-    if let cachedBundledModels { return cachedBundledModels }
-    let loaded = loadBundled()
-    let resolved = loaded.isEmpty ? fallbackNativeCodexModels : loaded
-    cachedBundledModels = resolved
-    return resolved
-  }
-
-  static func bundledModels(from data: Data) -> [CodexCatalogModel] {
-    guard var root = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-          var models = root["models"] as? [[String: Any]] else {
-      return []
-    }
-    models = models.map { model in
-      var copy = model
-      if copy["supports_reasoning_summaries"] == nil {
-        copy["supports_reasoning_summaries"] = false
-      }
-      if copy["supports_parallel_tool_calls"] == nil {
-        copy["supports_parallel_tool_calls"] = true
-      }
-      return copy
-    }
-    root["models"] = models
-    guard let normalized = try? JSONSerialization.data(withJSONObject: root),
-          let file = try? JSONDecoder().decode(CodexCatalogFile.self, from: normalized) else {
-      return []
-    }
-    return file.models.filter { !$0.slug.isEmpty }
-  }
-
-  static func resetBundledModelCache() {
-    bundledModelsLock.lock()
-    cachedBundledModels = nil
-    bundledModelsLock.unlock()
-  }
-
-  private static let bundledModelsLock = NSLock()
-  private static var cachedBundledModels: [CodexCatalogModel]?
-
-  private static func loadBundledCodexModels() -> [CodexCatalogModel] {
-    guard let executable = CodexCLIDaemon.resolve() else { return [] }
-    do {
-      return bundledModels(from: try runBundledModelsCommand(executable))
-    } catch {
-      GatewayLog.error("Failed to read bundled Codex models: \(error.localizedDescription)")
-      return []
-    }
-  }
-
-  static let bundledModelsCommandTimeout: TimeInterval = 5
-
-  /// Reads bundled Codex models. Waits at most `timeout` seconds so a stuck
-  /// `codex` process cannot freeze startup, which calls this on the main thread.
-  static func runBundledModelsCommand(
-    _ executable: String,
-    arguments: [String] = ["debug", "models", "--bundled"],
-    timeout: TimeInterval = bundledModelsCommandTimeout
-  ) throws -> Data {
-    let process = Process()
-    process.executableURL = URL(fileURLWithPath: executable)
-    process.arguments = arguments
-    var env = ProcessInfo.processInfo.environment
-    env["HOME"] = Paths.home
-    process.environment = env
-    let stdout = Pipe()
-    process.standardOutput = stdout
-    process.standardError = FileHandle.nullDevice
-
-    let exited = DispatchSemaphore(value: 0)
-    process.terminationHandler = { _ in exited.signal() }
-    try process.run()
-
-    let output = BundledCommandOutput()
-    DispatchQueue.global(qos: .userInitiated).async {
-      output.set(stdout.fileHandleForReading.readDataToEndOfFile())
-    }
-
-    if exited.wait(timeout: .now() + timeout) == .timedOut {
-      process.terminate()
-      if exited.wait(timeout: .now() + 1) == .timedOut {
-        kill(process.processIdentifier, SIGKILL)
-        _ = exited.wait(timeout: .now() + 1)
-      }
-      throw NSError(
-        domain: "CodexBundledModels",
-        code: Int(SIGTERM),
-        userInfo: [NSLocalizedDescriptionKey: "codex debug models --bundled timed out after \(timeout)s"]
-      )
-    }
-
-    let deadline = Date().addingTimeInterval(1)
-    while output.get() == nil, Date() < deadline {
-      Thread.sleep(forTimeInterval: 0.01)
-    }
-    guard process.terminationStatus == 0, let data = output.get() else {
-      throw NSError(
-        domain: "CodexBundledModels",
-        code: Int(process.terminationStatus),
-        userInfo: [NSLocalizedDescriptionKey: "codex debug models --bundled exited \(process.terminationStatus)"]
-      )
-    }
-    return data
+  /// Custom models only. Native Codex models stay on Codex's own picker: once this
+  /// file is installed, every listed model is sent through the gateway, and ChatGPT
+  /// rejects native model ids on that path.
+  static func codexPickerModels(from catalog: ModelCatalogFile) -> [CodexCatalogModel] {
+    codexCustomModels(from: catalog)
   }
 
   private static func codexCustomModels(from catalog: ModelCatalogFile) -> [CodexCatalogModel] {
@@ -701,13 +673,14 @@ final class ModelCatalog {
 
   private static let defaultBaseInstructions = "You are Codex, a coding agent. Follow the user's instructions, use available tools carefully, and keep working until the user's software engineering task is complete."
 
-  static let fallbackNativeCodexModels: [CodexCatalogModel] = [
-    codexModel(slug: "gpt-5.5", displayName: "GPT-5.5", description: "Native ChatGPT model routed through Codex/OpenAI.", contextWindow: 272_000, priority: 0),
-    codexModel(slug: "gpt-5.4", displayName: "GPT-5.4", description: "Native ChatGPT model routed through Codex/OpenAI.", contextWindow: 272_000, priority: 1),
-    codexModel(slug: "gpt-5.4-mini", displayName: "GPT-5.4 Mini", description: "Native ChatGPT model routed through Codex/OpenAI.", contextWindow: 272_000, priority: 2),
-    codexModel(slug: "gpt-5.3-codex", displayName: "GPT-5.3 Codex", description: "Native ChatGPT coding model routed through Codex/OpenAI.", contextWindow: 272_000, priority: 3),
-    codexModel(slug: "gpt-5.2-codex", displayName: "GPT-5.2 Codex", description: "Native ChatGPT coding model routed through Codex/OpenAI.", contextWindow: 272_000, priority: 4),
-    codexModel(slug: "gpt-5.2", displayName: "GPT-5.2", description: "Native ChatGPT model routed through Codex/OpenAI.", contextWindow: 272_000, priority: 5)
+  /// Slugs that must stay ChatGPT pass-through even if a custom upstream id matches them.
+  private static let nativeCodexSlugs: Set<String> = [
+    "gpt-5.5",
+    "gpt-5.4",
+    "gpt-5.4-mini",
+    "gpt-5.3-codex",
+    "gpt-5.2-codex",
+    "gpt-5.2",
   ]
 
   private static func codexModel(

@@ -1,11 +1,34 @@
 import AppKit
 import SwiftUI
 
+enum GatewayConfigCopy {
+  static let updateNote = "Writes your custom models into Codex's picker, then restarts the Codex app and CLI daemon. Native Codex models are removed from that list."
+  static let resetNote = "Stops routing Codex through CodexGateway, then restarts the Codex app and CLI daemon. Custom models leave the picker and native Codex models return. Your saved providers and models are kept."
+}
+
 enum SettingsDisclosureDefaults {
   static let addProviderExpanded = false
   static let presetsExpanded = false
   static let providersExpanded = true
   static let modelsExpanded = true
+}
+
+enum SettingsSectionExpansion {
+  static let providersKey = "codexgateway.settings.providersExpanded"
+  static let modelsKey = "codexgateway.settings.modelsExpanded"
+
+  static func storedExpanded(
+    forKey key: String,
+    defaultValue: Bool,
+    defaults: UserDefaults = .standard
+  ) -> Bool {
+    guard defaults.object(forKey: key) != nil else { return defaultValue }
+    return defaults.bool(forKey: key)
+  }
+
+  static func storeExpanded(_ expanded: Bool, forKey key: String, defaults: UserDefaults = .standard) {
+    defaults.set(expanded, forKey: key)
+  }
 }
 
 struct SettingsView: View {
@@ -41,8 +64,14 @@ struct SettingsView: View {
   @State private var presetAPIKey = ""
   @State private var isAddProviderSectionExpanded = SettingsDisclosureDefaults.addProviderExpanded
   @State private var isPresetSectionExpanded = SettingsDisclosureDefaults.presetsExpanded
-  @State private var isProvidersSectionExpanded = SettingsDisclosureDefaults.providersExpanded
-  @State private var isModelsSectionExpanded = SettingsDisclosureDefaults.modelsExpanded
+  @State private var isProvidersSectionExpanded = SettingsSectionExpansion.storedExpanded(
+    forKey: SettingsSectionExpansion.providersKey,
+    defaultValue: SettingsDisclosureDefaults.providersExpanded
+  )
+  @State private var isModelsSectionExpanded = SettingsSectionExpansion.storedExpanded(
+    forKey: SettingsSectionExpansion.modelsKey,
+    defaultValue: SettingsDisclosureDefaults.modelsExpanded
+  )
   @State private var isValidatingCursorKey = false
   @State private var cursorNodeProbe = CursorBridge.NodeRequirement.snapshot(binaryPath: nil, versionDisplay: "")
   @State private var cursorBridgeStatus = CursorBridgeRuntime.status
@@ -63,7 +92,13 @@ struct SettingsView: View {
       signInHintSection
       addProviderSection
       providersSection
+        .onChange(of: isProvidersSectionExpanded) { _, expanded in
+          SettingsSectionExpansion.storeExpanded(expanded, forKey: SettingsSectionExpansion.providersKey)
+        }
       modelsSection
+        .onChange(of: isModelsSectionExpanded) { _, expanded in
+          SettingsSectionExpansion.storeExpanded(expanded, forKey: SettingsSectionExpansion.modelsKey)
+        }
       resetSection
     }
     .formStyle(.grouped)
@@ -132,9 +167,8 @@ struct SettingsView: View {
       }
       Button("Cancel", role: .cancel) {}
     } message: {
-      Text(store.gatewayConfigInSync
-        ? "Removes CodexGateway's managed settings from Codex's own config so Codex returns to its native configuration, then restarts Codex. Your CodexGateway providers and models are not deleted."
-        : "Writes your current CodexGateway providers and models into Codex's config, then restarts Codex.")
+      Text(store.gatewayConfigInSync ? GatewayConfigCopy.resetNote : GatewayConfigCopy.updateNote)
+        .font(.body)
     }
   }
 
@@ -581,32 +615,32 @@ struct SettingsView: View {
     count: Int? = nil,
     isExpanded: Binding<Bool>
   ) -> some View {
-    Button {
+    HStack(spacing: 8) {
+      Image(systemName: "chevron.right")
+        .font(.caption.weight(.semibold))
+        .foregroundStyle(.secondary)
+        .rotationEffect(.degrees(isExpanded.wrappedValue ? 90 : 0))
+      Image(systemName: systemImage)
+        .foregroundStyle(.secondary)
+      Text(title)
+        .font(.headline)
+        .foregroundStyle(.primary)
+      Spacer()
+      if let count {
+        Text("\(count)")
+          .font(.system(size: 16, weight: .semibold))
+          .monospacedDigit()
+          .foregroundStyle(.secondary)
+          .fixedSize()
+      }
+    }
+    .contentShape(Rectangle())
+    .padding(.vertical, 6)
+    .onTapGesture {
       withAnimation(.easeInOut(duration: 0.15)) {
         isExpanded.wrappedValue.toggle()
       }
-    } label: {
-      HStack(spacing: 8) {
-        Image(systemName: "chevron.right")
-          .font(.caption.weight(.semibold))
-          .foregroundStyle(.secondary)
-          .rotationEffect(.degrees(isExpanded.wrappedValue ? 90 : 0))
-        Image(systemName: systemImage)
-          .foregroundStyle(.secondary)
-        Text(title)
-          .font(.headline)
-          .foregroundStyle(.primary)
-        Spacer()
-        if let count {
-          Text("\(count)")
-            .font(.caption)
-            .foregroundStyle(.secondary)
-        }
-      }
-      .contentShape(Rectangle())
-      .padding(.vertical, 4)
     }
-    .buttonStyle(.plain)
     .accessibilityLabel(title)
     .accessibilityValue(isExpanded.wrappedValue ? "Expanded" : "Collapsed")
     .accessibilityHint("Shows or hides the \(title.lowercased()) list")
@@ -622,19 +656,19 @@ struct SettingsView: View {
         } label: {
           Label("Reset Gateway Config", systemImage: "exclamationmark.arrow.triangle.2.circlepath")
         }
-        .help("Reset only Codex's config so it stops routing through CodexGateway. Your CodexGateway providers and models are kept.")
+        .help(GatewayConfigCopy.resetNote)
       } else {
         Button {
           showingResetConfirmation = true
         } label: {
           Label("Update Gateway Config", systemImage: "arrow.triangle.2.circlepath")
         }
-        .help("Apply your CodexGateway providers and models to Codex's config and restart Codex.")
+        .help(GatewayConfigCopy.updateNote)
       }
-    } footer: {
-      Text(store.gatewayConfigInSync
-        ? "Resets only Codex's configuration so it stops routing through CodexGateway. Your CodexGateway providers and models stay saved. Codex will restart."
-        : "Codex's config is out of date with your CodexGateway models. Update writes your current providers and models into Codex's config. Codex will restart.")
+      Text(store.gatewayConfigInSync ? GatewayConfigCopy.resetNote : GatewayConfigCopy.updateNote)
+        .font(.body)
+        .foregroundStyle(.secondary)
+        .fixedSize(horizontal: false, vertical: true)
     }
   }
 
