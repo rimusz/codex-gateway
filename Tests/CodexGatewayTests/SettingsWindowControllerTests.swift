@@ -5,6 +5,14 @@ import SwiftUI
 
 @MainActor
 final class SettingsWindowControllerTests: XCTestCase {
+    func testGatewayConfigNotesDescribePickerSwap() {
+        XCTAssertTrue(GatewayConfigCopy.updateNote.contains("Native Codex models are removed"))
+        XCTAssertTrue(GatewayConfigCopy.updateNote.contains("restarts the Codex app and CLI daemon"))
+        XCTAssertTrue(GatewayConfigCopy.resetNote.contains("native Codex models return"))
+        XCTAssertTrue(GatewayConfigCopy.resetNote.contains("Custom models leave the picker"))
+        XCTAssertTrue(GatewayConfigCopy.resetNote.contains("restarts the Codex app and CLI daemon"))
+    }
+
     func testMakeWindowKeepsWindowAliveAfterClose() {
         let delegate = TestWindowDelegate()
         let hosting = NSHostingController(rootView: EmptyView())
@@ -76,6 +84,45 @@ final class SettingsWindowControllerTests: XCTestCase {
         XCTAssertFalse(SettingsDisclosureDefaults.presetsExpanded)
         XCTAssertTrue(SettingsDisclosureDefaults.providersExpanded)
         XCTAssertTrue(SettingsDisclosureDefaults.modelsExpanded)
+    }
+
+    func testProvidersAndModelsExpansionIsRemembered() {
+        let suite = "SettingsSectionExpansionTests.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suite)!
+        defer { defaults.removePersistentDomain(forName: suite) }
+
+        XCTAssertTrue(
+            SettingsSectionExpansion.storedExpanded(
+                forKey: SettingsSectionExpansion.providersKey,
+                defaultValue: true,
+                defaults: defaults
+            )
+        )
+        XCTAssertTrue(
+            SettingsSectionExpansion.storedExpanded(
+                forKey: SettingsSectionExpansion.modelsKey,
+                defaultValue: true,
+                defaults: defaults
+            )
+        )
+
+        SettingsSectionExpansion.storeExpanded(false, forKey: SettingsSectionExpansion.providersKey, defaults: defaults)
+        SettingsSectionExpansion.storeExpanded(true, forKey: SettingsSectionExpansion.modelsKey, defaults: defaults)
+
+        XCTAssertFalse(
+            SettingsSectionExpansion.storedExpanded(
+                forKey: SettingsSectionExpansion.providersKey,
+                defaultValue: true,
+                defaults: defaults
+            )
+        )
+        XCTAssertTrue(
+            SettingsSectionExpansion.storedExpanded(
+                forKey: SettingsSectionExpansion.modelsKey,
+                defaultValue: false,
+                defaults: defaults
+            )
+        )
     }
 }
 

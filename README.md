@@ -2,11 +2,9 @@
 
 **Use any OpenAI-compatible model in Codex Desktop and Codex CLI — from a macOS menu bar app.**
 
-Codex Desktop and the Codex CLI normally talk only to OpenAI's own models. CodexGateway sits quietly in your menu bar and runs a tiny local gateway that lets both route to **third-party providers** (Cursor via a local bridge, Anthropic Console API key or Claude Code login, xAI API key, Grok OAuth via the official Grok CLI, DeepSeek, OpenRouter, Z.ai, Kimi, Qwen, MiniMax, Cline Pass, …) or **local models** (Ollama) — while still passing native GPT/ChatGPT requests straight through to OpenAI. You configure providers and models in a native **Settings** window; Desktop and CLI then share the same gateway via `~/.codex/config.toml`.
+Codex Desktop and the Codex CLI normally talk only to OpenAI's own models. CodexGateway sits quietly in your menu bar and runs a tiny local gateway that lets both route to **third-party providers** (Cursor via a local bridge, Anthropic Console API key or Claude Code login, xAI API key, Grok OAuth via the official Grok CLI, DeepSeek, OpenRouter, Z.ai, Kimi, Qwen, MiniMax, Cline Pass, …) or **local models** (Ollama). You keep those providers and models in a native **Settings** window. **Update Gateway Config** writes only your custom models into Codex's picker and restarts the Codex app and CLI daemon. **Reset Gateway Config** puts Codex's own models back in the picker and takes the custom models out. The picker shows one of those lists at a time: ChatGPT rejects native Codex model ids when the request comes through the gateway. A custom entry whose upstream id matches a native slug still works when you select that entry (for example `cursor/gpt-5.5` goes to Cursor). Desktop and CLI share the choice through `~/.codex/config.toml`.
 
 ![CodexGateway Settings and menu bar](docs/screenshots/settings-and-menu.png)
-
-> **Formerly CodexBar.** The app was renamed to **CodexGateway**. Existing installs keep your providers and keys — see [Upgrading from CodexBar](#upgrading-from-codexbar).
 
 > Most providers must expose an OpenAI-compatible `/chat/completions` endpoint. **Cursor** is supported via a managed local Node sidecar (`@cursor/sdk` on `127.0.0.1:18788`) — paste a Cursor API key from [cursor.com/dashboard](https://cursor.com/dashboard) → Integrations. Settings checks that Node.js ≥ 22.13 is installed (Homebrew `brew install node`, or [nodejs.org](https://nodejs.org/)). The bridge is inference-only (assistant text); Codex keeps its own tools. **xAI Grok (OAuth)** reuses your Grok CLI login and talks to xAI's CLI chat proxy instead of storing an API key.
 
@@ -15,19 +13,22 @@ Codex Desktop and the Codex CLI normally talk only to OpenAI's own models. Codex
 ## How it works
 
 ```text
-Codex Desktop          Codex CLI
-     │                      │
-     └──────────┬───────────┘
-                │  HTTP (loopback)
-                ▼
-     CodexGateway gateway — 127.0.0.1:8765
-                │
-                ├─ custom model → third-party provider API   (Responses ⇄ Chat Completions)
-                └─ native GPT   → OpenAI / ChatGPT backend    (passed through unchanged)
+Update Gateway Config                         Reset Gateway Config
+        │                                              │
+        ▼                                              ▼
+picker: your custom models only              picker: native Codex models
+        │                                              │
+        ▼                                              ▼
+CodexGateway 127.0.0.1:8765                  Codex's own ChatGPT path
+        │
+        ▼
+third-party or local API (Responses ⇄ Chat Completions)
 ```
 
-- **Gateway** — a small embedded Swift HTTP server on `127.0.0.1:8765` (loopback only). Desktop and CLI are pointed at it via a managed block in `~/.codex/config.toml` (same config for both).
-- **Routing** — requests for your custom models are translated (OpenAI *Responses* ⇄ *Chat Completions*) and forwarded to the provider's API with your key; native models are passed through to OpenAI/ChatGPT unchanged. Custom models match the catalog slug or a unique unprefixed id (so Codex Desktop can send `minimax-m2.5` for `openrouter/minimax-m2.5`). Pass-through replaces Codex's dummy bearer token with your ChatGPT login from `~/.codex/auth.json`. Outbound HTTPS uses the macOS trust store — works with Zscaler (corp root in Keychain) and without.
+Desktop and the CLI share `~/.codex/config.toml`. Either button restarts the Codex app and the CLI daemon so both reload the same picker.
+
+- **Gateway** — a small embedded Swift HTTP server on `127.0.0.1:8765` (loopback only). **Update Gateway Config** points Desktop and CLI at it via a managed block in `~/.codex/config.toml`. **Reset Gateway Config** removes that block so Codex uses its own models again. Your saved providers and models stay in `~/.codexgateway`.
+- **Routing** — with the gateway applied, Codex sends the custom catalog. Those requests are translated (OpenAI *Responses* ⇄ *Chat Completions*) and forwarded to the provider's API with your key. A request matches the catalog slug first (`cursor/gpt-5.5` stays on Cursor), then a unique unprefixed id (`minimax-m2.5` → `openrouter/minimax-m2.5`). Bare native slugs such as `gpt-5.5` stay on Codex's own path. Outbound HTTPS uses the macOS trust store — works with Zscaler (corp root in Keychain) and without.
 - **Menu bar + Settings** — a status icon shows gateway health and port; Settings is where you add providers, pick models, and sync the catalog Codex Desktop/CLI read.
 
 ## Features
@@ -35,9 +36,9 @@ Codex Desktop          Codex CLI
 - **Third-party & local models in Codex Desktop and CLI** via Responses ⇄ Chat Completions translation
 - **Cursor provider** — managed local OpenAI bridge (port `18788`) with dashboard API key; Fetch models from the sidecar, then add to the Codex catalog
 - **Custom provider examples** — Settings → **Add Provider** → Add custom provider includes a **Fill Spark example** for NVIDIA DGX Spark (`http://spark:8001/v1`)
-- **Shared model catalog** — Settings exports models into `~/.codex` so Desktop’s picker and the CLI both see them
-- **Native GPT pass-through** — official OpenAI / ChatGPT requests are forwarded unchanged, except a dummy `Authorization` from Codex's gateway provider is swapped for your ChatGPT token
-- **No Codex sign-in needed for local-only use** (e.g. Ollama); sign-in is only required for native GPT/ChatGPT
+- **Shared model catalog** — **Update Gateway Config** exports your custom models into `~/.codex` so Desktop’s picker and the CLI both show that list. Native Codex models are omitted from the export.
+- **One picker at a time** — custom models while the gateway config is applied; Codex's own models after **Reset Gateway Config**
+- **No Codex sign-in needed for local-only use** (e.g. Ollama). Custom models show in Codex's picker once you are signed in (a free account is enough). Native Codex models use your ChatGPT login after a reset.
 - **First-run setup** — when the catalog is empty, a three-step window (choose provider → connect → pick models) writes Codex config and offers Restart Codex
 - **Menu bar status** with live gateway state + port; Cursor Bridge address appears on a second line only when the Cursor provider is installed; plus native Settings, Doctor, and About windows
 - **Doctor** — menu **Doctor…** (⌘D) or Settings toolbar: checks the local gateway, Codex config/sign-in, Node.js (for Cursor), Cursor API key/sidecar, Grok OAuth, and Claude Code login
@@ -95,7 +96,7 @@ If Codex shows your prompt and then **nothing** (blank assistant turn), either t
 
 ## Managing providers & models
 
-Everything lives in the **Settings** window — no browser needed. **Add Provider** (presets and custom add) starts collapsed. The **Providers** and **Models** lists can be collapsed (they start expanded) so you can focus on one at a time.
+Everything lives in the **Settings** window — no browser needed. **Add Provider** (presets and custom add) starts collapsed. The **Providers** and **Models** lists can be collapsed so you can focus on one at a time. They start expanded, and CodexGateway remembers whether you left each one open or closed.
 
 ### Providers
 
@@ -142,10 +143,10 @@ Menu bar → **Open at Login** toggles whether CodexGateway launches when you si
 
 This button toggles based on whether Codex's config already matches your CodexGateway models:
 
-- **Reset Gateway Config** (in sync) — removes *only Codex's* managed block + exported catalog so Codex stops routing through CodexGateway. **Your `~/.codexgateway` providers and models are kept.**
-- **Update Gateway Config** (out of date, e.g. after a reset or newly added models) — re-applies your providers/models to Codex.
+- **Reset Gateway Config** (in sync) — removes CodexGateway from Codex's config. Custom models leave the picker and native Codex models return. **Your `~/.codexgateway` providers and models are kept.**
+- **Update Gateway Config** (out of date, e.g. after a reset or newly added models) — writes your custom models into Codex's picker. Native Codex models are removed from that list.
 
-Either action restarts Codex.
+Either action restarts the Codex app and the CLI daemon.
 
 ## Security & networking
 
@@ -161,9 +162,9 @@ CodexGateway keeps its own data under `~/.codexgateway/` and writes only a clear
 | `~/.codexgateway/custom_model_catalog.json` | Your installed models + routing metadata |
 | `~/.codexgateway/fetched_models.json` | Cache of provider model lists |
 | `~/.codex/config.toml` | Codex config — CodexGateway patches a managed block only |
-| `~/.codex/model-catalogs/custom-providers.json` | Codex model catalog export for Desktop + CLI (native models **plus** your custom ones) |
+| `~/.codex/model-catalogs/custom-providers.json` | Codex model catalog export for Desktop + CLI (custom models only) |
 
-The exported catalog includes the Codex models shipped with the installed CLI (`codex debug models --bundled`) plus your custom models. Codex replaces its picker with that file, so the built-in models are copied in rather than left to Codex's own list. If the CLI cannot be read, the export falls back to GPT-5.5, GPT-5.4, GPT-5.4 Mini, GPT-5.3 Codex, GPT-5.2 Codex, and GPT-5.2.
+The exported catalog contains only your custom models. Native Codex models stay on Codex's own list. ChatGPT rejects those model ids when they are sent through the gateway, so they are not copied into this file.
 
 ## Updates
 
@@ -239,7 +240,7 @@ zero providers models codexgateway
 zero providers current
 ```
 
-You want `status: ok` and `connectivity: pass`. `zero providers models codexgateway` lists every slug the gateway exposes (custom + native GPT slugs).
+You want `status: ok` and `connectivity: pass`. `zero providers models codexgateway` lists the custom model slugs the gateway exposes.
 
 ### CLI — providers & models
 

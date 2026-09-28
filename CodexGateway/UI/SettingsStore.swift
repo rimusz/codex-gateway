@@ -307,7 +307,7 @@ final class SettingsStore: ObservableObject {
   func restartCodex(restart: () -> Void = { CodexAppServer.shared.restartCodexDesktop() }) {
     restart()
     needsCodexRestart = false
-    statusMessage = "Codex restart requested."
+    statusMessage = "Restarting the Codex app and CLI daemon."
   }
 
   /// Resets only Codex's configuration (managed block + exported catalog). CodexGateway's
@@ -320,7 +320,7 @@ final class SettingsStore: ObservableObject {
     restart()
     reload()
     needsCodexRestart = false
-    statusMessage = "Codex config reset — your providers and models are kept. Codex restart requested."
+    statusMessage = "Codex config reset — your providers and models are kept. Restarting the Codex app and CLI daemon."
   }
 
   /// Writes the exported catalog and managed `config.toml` block. Does not restart Codex.
@@ -339,7 +339,7 @@ final class SettingsStore: ObservableObject {
   }
 
   /// Applies CodexGateway's current providers and models to Codex's config (re-exports the
-  /// catalog and patches config.toml), then restarts Codex.
+  /// catalog and patches config.toml), then restarts the Codex app and CLI daemon.
   func updateGatewayConfig(
     ensureConfig: () throws -> Void = { try CodexConfig.ensureConfigFile() },
     sync: () throws -> Void = { try ModelCatalog.shared.syncCodexCatalogExport() },
@@ -354,7 +354,7 @@ final class SettingsStore: ObservableObject {
     }
     restart()
     needsCodexRestart = false
-    statusMessage = "Codex config updated with your models. Codex restart requested."
+    statusMessage = "Codex config updated with your models. Restarting the Codex app and CLI daemon."
   }
 
   func isPresetInstalled(_ preset: ProviderPreset) -> Bool {

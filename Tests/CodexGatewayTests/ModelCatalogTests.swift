@@ -219,7 +219,7 @@ final class ModelCatalogTests: XCTestCase {
         XCTAssertEqual(custom?.visibility, "list")
     }
 
-    func testCodexCatalogIncludesNativeModelsWithCustomModels() throws {
+    func testCodexCatalogExportsOnlyCustomModels() throws {
         let internalCatalog = ModelCatalogFile(models: [
             CatalogModel(
                 slug: "minimax/minimax-m2.5",
@@ -234,132 +234,14 @@ final class ModelCatalogTests: XCTestCase {
             )
         ])
 
-        let export = ModelCatalog.codexCatalog(
-            from: internalCatalog,
-            nativeModels: ModelCatalog.fallbackNativeCodexModels
-        )
-        XCTAssertEqual(export.models.first?.slug, "gpt-5.5")
-        XCTAssertTrue(export.models.contains { $0.slug == "gpt-5.4" })
-        XCTAssertTrue(export.models.contains { $0.slug == "gpt-5.3-codex" })
-        XCTAssertTrue(export.models.contains { $0.slug == "minimax/minimax-m2.5" })
+        let export = ModelCatalog.codexCatalog(from: internalCatalog)
+        XCTAssertEqual(export.models.map(\.slug), ["minimax/minimax-m2.5"])
+        XCTAssertFalse(export.models.contains { $0.slug.hasPrefix("gpt-") })
     }
 
-    func testCodexCatalogIncludesNativeModelsWhenCustomCatalogIsEmpty() {
-        let export = ModelCatalog.codexCatalog(
-            from: ModelCatalogFile(models: []),
-            nativeModels: ModelCatalog.fallbackNativeCodexModels
-        )
-        XCTAssertFalse(export.models.isEmpty)
-        XCTAssertEqual(export.models.first?.slug, "gpt-5.5")
-    }
-
-    func testBundledCodexModelsStayAheadOfCustomModels() throws {
-        let bundled = """
-        {"models":[{
-          "slug":"gpt-6-astra",
-          "display_name":"GPT-6-Astra",
-          "description":"Bundled",
-          "default_reasoning_level":"medium",
-          "supported_reasoning_levels":[{"effort":"low","description":"Fast"}],
-          "base_instructions":"You are Codex",
-          "model_messages":{"instructions_template":"You are Codex"},
-          "default_reasoning_summary":"none",
-          "support_verbosity":false,
-          "default_verbosity":"low",
-          "apply_patch_tool_type":"freeform",
-          "web_search_tool_type":"text_and_image",
-          "truncation_policy":{"mode":"tokens","limit":10000},
-          "supports_image_detail_original":false,
-          "context_window":272000,
-          "max_context_window":272000,
-          "effective_context_window_percent":100,
-          "experimental_supported_tools":[],
-          "input_modalities":["text","image"],
-          "supports_search_tool":false,
-          "use_responses_lite":false,
-          "additional_speed_tiers":[],
-          "service_tiers":[],
-          "visibility":"list",
-          "supported_in_api":true,
-          "shell_type":"shell_command",
-          "priority":1
-        }]}
-        """.data(using: .utf8)!
-        let native = ModelCatalog.bundledModels(from: bundled)
-        XCTAssertEqual(native.map(\.slug), ["gpt-6-astra"])
-
-        let export = ModelCatalog.codexCatalog(
-            from: ModelCatalogFile(models: [
-                CatalogModel(
-                    slug: "minimax/minimax-m2.5",
-                    model: "minimax-m2.5",
-                    provider: "minimax",
-                    backend_provider: "minimax",
-                    display_name: "MiniMax M2.5",
-                    visibility: "list",
-                    input_modalities: nil,
-                    vision_bridge_enabled: nil,
-                    context_window: nil
-                )
-            ]),
-            nativeModels: native
-        )
-        XCTAssertEqual(export.models.map(\.slug), ["gpt-6-astra", "minimax/minimax-m2.5"])
-    }
-
-    func testNativeExportPrefersBundledModelsAndFallsBackWhenUnavailable() {
-        ModelCatalog.resetBundledModelCache()
-        defer { ModelCatalog.resetBundledModelCache() }
-        let bundled = ModelCatalog.bundledModels(from: Data("""
-        {"models":[{
-          "slug":"gpt-6-astra","display_name":"GPT-6-Astra","description":"Bundled",
-          "default_reasoning_level":"medium",
-          "supported_reasoning_levels":[{"effort":"low","description":"Fast"}],
-          "base_instructions":"You are Codex",
-          "model_messages":{"instructions_template":"You are Codex"},
-          "default_reasoning_summary":"none","support_verbosity":false,"default_verbosity":"low",
-          "apply_patch_tool_type":"freeform","web_search_tool_type":"text_and_image",
-          "truncation_policy":{"mode":"tokens","limit":10000},
-          "supports_image_detail_original":false,"context_window":272000,
-          "max_context_window":272000,"effective_context_window_percent":100,
-          "experimental_supported_tools":[],"input_modalities":["text"],
-          "supports_search_tool":false,"use_responses_lite":false,
-          "additional_speed_tiers":[],"service_tiers":[],"visibility":"list",
-          "supported_in_api":true,"shell_type":"shell_command","priority":1
-        }]}
-        """.utf8))
-
-        XCTAssertEqual(
-            ModelCatalog.nativeModelsForExport(loadBundled: { bundled }).map(\.slug),
-            ["gpt-6-astra"]
-        )
-        XCTAssertEqual(
-            ModelCatalog.nativeModelsForExport(loadBundled: { [] }).map(\.slug),
-            ["gpt-6-astra"]
-        )
-        ModelCatalog.resetBundledModelCache()
-        XCTAssertEqual(
-            ModelCatalog.nativeModelsForExport(loadBundled: { [] }).first?.slug,
-            "gpt-5.5"
-        )
-    }
-
-    func testBundledModelsCommandTimesOutInsteadOfWaiting() throws {
-        let root = FileManager.default.temporaryDirectory
-            .appendingPathComponent("codex-bundled-timeout-\(UUID().uuidString)", isDirectory: true)
-        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
-        defer { try? FileManager.default.removeItem(at: root) }
-        let script = root.appendingPathComponent("hang.sh")
-        try "#!/bin/sh\nsleep 30\n".write(to: script, atomically: true, encoding: .utf8)
-        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: script.path)
-
-        let started = Date()
-        XCTAssertThrowsError(
-            try ModelCatalog.runBundledModelsCommand(script.path, arguments: [], timeout: 0.3)
-        ) { error in
-            XCTAssertTrue(error.localizedDescription.contains("timed out"))
-        }
-        XCTAssertLessThan(Date().timeIntervalSince(started), 3)
+    func testCodexCatalogIsEmptyWhenNoCustomModelsAreInstalled() {
+        let export = ModelCatalog.codexCatalog(from: ModelCatalogFile(models: []))
+        XCTAssertTrue(export.models.isEmpty)
     }
 
     func testCatalogModelsForProviderMatchesProviderOrBackendProvider() {
@@ -594,6 +476,53 @@ final class ModelCatalogTests: XCTestCase {
         XCTAssertNil(ModelCatalog.findModel(requested: "", in: models))
         XCTAssertTrue(ModelCatalog.isNativeCodexSlug("gpt-5.5"))
         XCTAssertFalse(ModelCatalog.isNativeCodexSlug("minimax-m2.5"))
+    }
+
+    func testBundledCatalogProtectsFutureNativeSlugsFromCustomAlias() {
+        ModelCatalog.resetBundledNativeSlugs()
+        defer { ModelCatalog.resetBundledNativeSlugs() }
+        let slugs = ModelCatalog.nativeSlugs(fromBundledJSON: Data("""
+        {"models":[{"slug":"gpt-6-astra"},{"slug":"  "},{"slug":""}]}
+        """.utf8))
+        XCTAssertEqual(slugs, ["gpt-6-astra"])
+        XCTAssertEqual(ModelCatalog.bundledNativeSlugs(load: { slugs }), ["gpt-6-astra"])
+        XCTAssertTrue(ModelCatalog.isNativeCodexSlug("gpt-6-astra"))
+        XCTAssertTrue(ModelCatalog.isNativeCodexSlug("gpt-5.5"))
+
+        let colliding = CatalogModel(
+            slug: "openrouter/gpt-6-astra",
+            model: "gpt-6-astra",
+            provider: "openrouter",
+            backend_provider: "openrouter",
+            display_name: "OpenRouter GPT 6 Astra",
+            visibility: "list",
+            input_modalities: nil,
+            vision_bridge_enabled: nil,
+            context_window: nil
+        )
+        XCTAssertNil(ModelCatalog.findModel(requested: "gpt-6-astra", in: [colliding]))
+        XCTAssertEqual(
+            ModelCatalog.findModel(requested: "openrouter/gpt-6-astra", in: [colliding])?.slug,
+            "openrouter/gpt-6-astra"
+        )
+    }
+
+    func testBundledSlugCommandTimesOutInsteadOfWaiting() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("codex-slug-timeout-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let script = root.appendingPathComponent("hang.sh")
+        try "#!/bin/sh\nsleep 30\n".write(to: script, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: script.path)
+
+        let started = Date()
+        XCTAssertThrowsError(
+            try ModelCatalog.runBundledSlugCommand(script.path, arguments: [], timeout: 0.3)
+        ) { error in
+            XCTAssertTrue(error.localizedDescription.contains("timed out"))
+        }
+        XCTAssertLessThan(Date().timeIntervalSince(started), 3)
     }
 
     func testFindModelDoesNotStealNativeSlugEvenIfCustomUpstreamMatches() {
