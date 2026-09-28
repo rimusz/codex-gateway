@@ -1,11 +1,13 @@
 import Foundation
+import LocalAuthentication
 import Security
 
 /// Storage for the Cursor API key used by the managed local bridge.
 ///
 /// Prefer a 0600 file under Application Support so ad-hoc `make run` rebuilds (new code
 /// signature each time) do not trigger macOS Keychain password dialogs. Legacy Keychain
-/// items are migrated once on read, then removed.
+/// items are migrated once on read, then removed. That read uses an `LAContext` with
+/// interaction disabled so Security does not present UI.
 ///
 /// The key is injected into the sidecar process environment only — never written to
 /// `providers.json` (imported models keep `api_key = "local"`).
@@ -98,13 +100,15 @@ enum CursorBridgeKeychain {
   }
 
   private static func loadLegacyKeychainItem() -> String? {
+    let context = LAContext()
+    context.interactionNotAllowed = true
     let query: [String: Any] = [
       kSecClass as String: kSecClassGenericPassword,
       kSecAttrService as String: service,
       kSecAttrAccount as String: account,
       kSecReturnData as String: true,
       kSecMatchLimit as String: kSecMatchLimitOne,
-      kSecUseAuthenticationUI as String: kSecUseAuthenticationUIFail
+      kSecUseAuthenticationContext as String: context
     ]
     var item: CFTypeRef?
     let status = SecItemCopyMatching(query as CFDictionary, &item)
