@@ -68,7 +68,7 @@ Older CodexBar install helpers `ditto` without deleting first, so Launch Service
 codex-gateway/                    # GitHub repo (`rimusz/codex-gateway`; legacy `rimusz/codex-bar` redirects)
 ├── CodexGateway/                 # Main app target (AppKit)
 │   ├── main.swift                # NSApplication entry (.accessory)
-│   ├── AppDelegate.swift         # Gateway start/stop, status bar
+│   ├── AppDelegate.swift         # Gateway start/stop, status bar; Dock icon is the rounded About image (Dock does not mask applicationIconImage)
 │   ├── StatusBarController.swift # Menu bar icon + menu
 │   ├── AppActivationPolicy.swift # Restore .accessory when no windows remain
 │   ├── AppVersion.swift

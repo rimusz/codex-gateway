@@ -34,7 +34,10 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     Task { await CursorBridgeRuntime.startIfNeeded() }
     CodexAuthWatcher.shared.start()
     log("[App] Started embedded Swift gateway on :8765")
-    if let appIcon = AppIconProvider.image() {
+    // The Dock draws applicationIconImage as-is and does not apply its squircle.
+    // The source art has opaque corners, so hand the Dock the same rounded image
+    // About and Check for Updates already use.
+    if let appIcon = UpdatePanelStyle.icon(side: 512) {
       NSApplication.shared.applicationIconImage = appIcon
     }
     setupMainMenu()
