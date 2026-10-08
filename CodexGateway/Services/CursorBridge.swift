@@ -260,19 +260,9 @@ enum CursorBridge {
   }
 
   static func displayName(for modelID: String) -> String {
-    let slug = modelID.split(separator: "/").last.map(String.init) ?? modelID
-    let label = slug
-      .split(whereSeparator: { $0 == "-" || $0 == "_" })
-      .map { part -> String in
-        let token = String(part)
-        if token.allSatisfy({ $0.isNumber || $0 == "." }) { return token }
-        return token.prefix(1).uppercased() + token.dropFirst()
-      }
-      .joined(separator: " ")
-    let trimmed = label.trimmingCharacters(in: .whitespaces)
+    let trimmed = modelID.trimmingCharacters(in: .whitespacesAndNewlines)
     guard !trimmed.isEmpty else { return "Cursor" }
-    if trimmed.lowercased().hasPrefix("cursor ") { return trimmed }
-    return "Cursor \(trimmed)"
+    return ModelCatalog.prettyDisplayName(from: trimmed, providerID: ProviderPreset.cursor.providerID)
   }
 
   struct ProbeResult: Sendable, Equatable {

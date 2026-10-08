@@ -285,19 +285,9 @@ enum ClinePassCatalog {
   )!
 
   /// Human-readable label derived from a Cline Pass model id slug.
+  /// Uses the same dotted version rules as every other provider.
   static func displayLabel(for modelID: String) -> String {
-    let slug = modelID.split(separator: "/").last.map(String.init) ?? modelID
-    let acronyms: Set<String> = ["glm", "gpt"]
-    return slug
-      .split(separator: "-")
-      .map { part -> String in
-        let token = String(part)
-        if token.allSatisfy({ $0.isNumber || $0 == "." }) { return token }
-        let lower = token.lowercased()
-        if acronyms.contains(lower) { return lower.uppercased() }
-        return token.prefix(1).uppercased() + token.dropFirst()
-      }
-      .joined(separator: " ")
+    ModelCatalog.prettyDisplayName(from: modelID)
   }
 
   /// Display name written to the catalog (e.g. "Cline Kimi K2.7 Code").

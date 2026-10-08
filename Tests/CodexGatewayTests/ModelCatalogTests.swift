@@ -282,6 +282,49 @@ final class ModelCatalogTests: XCTestCase {
         XCTAssertEqual(ModelCatalog.prettyDisplayName(from: "minimax-m2.5"), "MiniMax M2.5")
     }
 
+    func testExcludingInstalledHidesSavedSlugAndUpstreamForThatProvider() {
+        func model(slug: String, upstream: String, provider: String) -> CatalogModel {
+            CatalogModel(
+                slug: slug, model: upstream, provider: provider, backend_provider: provider,
+                display_name: slug, visibility: "list",
+                input_modalities: nil, vision_bridge_enabled: nil, context_window: nil
+            )
+        }
+        let candidates = [
+            model(slug: "cursor/grok-4.7", upstream: "grok-4.7", provider: "cursor"),
+            model(slug: "cursor/composer-2.5", upstream: "composer-2.5", provider: "cursor"),
+            model(slug: "cursor/renamed", upstream: "claude-haiku-4-5", provider: "cursor")
+        ]
+        let installed = [
+            model(slug: "cursor/grok-4.7", upstream: "grok-4.7", provider: "cursor"),
+            model(slug: "cursor/custom-haiku", upstream: "claude-haiku-4-5", provider: "cursor"),
+            model(slug: "jfrog/grok-4.7", upstream: "grok-4.7", provider: "jfrog")
+        ]
+        XCTAssertEqual(
+            ModelCatalog.excludingInstalled(candidates, installed: installed, providerID: "cursor").map(\.slug),
+            ["cursor/composer-2.5"]
+        )
+        XCTAssertEqual(
+            ModelCatalog.excludingInstalled(candidates, installed: [], providerID: "cursor").map(\.slug),
+            ["cursor/grok-4.7", "cursor/composer-2.5", "cursor/renamed"]
+        )
+    }
+
+    func testPrettyDisplayNameUsesDotsForHyphenatedVersions() {
+        XCTAssertEqual(ModelCatalog.prettyDisplayName(from: "claude-opus-4-5"), "Claude Opus 4.5")
+        XCTAssertEqual(ModelCatalog.prettyDisplayName(from: "claude-opus-5"), "Claude Opus 5")
+        XCTAssertEqual(ModelCatalog.prettyDisplayName(from: "claude-opus-5-5"), "Claude Opus 5.5")
+        XCTAssertEqual(ModelCatalog.prettyDisplayName(from: "claude-sonnet-5-5"), "Claude Sonnet 5.5")
+        XCTAssertEqual(ModelCatalog.prettyDisplayName(from: "glm-5-3"), "GLM 5.3")
+        XCTAssertEqual(ModelCatalog.prettyDisplayName(from: "gemini-2.5-flash-lite"), "Gemini 2.5 Flash Lite")
+        XCTAssertEqual(ModelCatalog.prettyDisplayName(from: "glm-5p3-flash"), "GLM 5.3 Flash")
+        XCTAssertEqual(ModelCatalog.prettyDisplayName(from: "gpt-5.4-mini"), "GPT 5.4 Mini")
+        XCTAssertEqual(
+            ModelCatalog.prettyDisplayName(from: "claude-opus-4-8", providerID: "anthropic"),
+            "Anthropic Claude Opus 4.8 (API)"
+        )
+    }
+
     func testPrettyDisplayNameDropsPathPrefixAndDoubledVendor() {
         // Path prefix dropped and the doubled "deepseek" collapsed to one.
         XCTAssertEqual(
@@ -404,6 +447,33 @@ final class ModelCatalogTests: XCTestCase {
         XCTAssertEqual(
             ModelCatalog.normalizedDisplayName(for: legacyBranded),
             "xAI Grok 4.5 (OAuth)"
+        )
+
+        let spacedVersion = CatalogModel(
+            slug: "jfrog/claude-opus-4-5", model: "claude-opus-4-5",
+            provider: nil, backend_provider: nil,
+            display_name: "Claude Opus 4 5", visibility: "list",
+            input_modalities: nil, vision_bridge_enabled: nil, context_window: nil
+        )
+        XCTAssertEqual(ModelCatalog.normalizedDisplayName(for: spacedVersion), "Claude Opus 4.5")
+
+        let collapsedMinor = CatalogModel(
+            slug: "jfrog/claude-opus-5-5", model: "claude-opus-5-5",
+            provider: nil, backend_provider: nil,
+            display_name: "Claude Opus 5", visibility: "list",
+            input_modalities: nil, vision_bridge_enabled: nil, context_window: nil
+        )
+        XCTAssertEqual(ModelCatalog.normalizedDisplayName(for: collapsedMinor), "Claude Opus 5.5")
+
+        let hyphenatedVersion = CatalogModel(
+            slug: "cursor/claude-haiku-4-5", model: "claude-haiku-4-5",
+            provider: "cursor", backend_provider: "cursor",
+            display_name: "Cursor Claude Haiku 4-5", visibility: "list",
+            input_modalities: nil, vision_bridge_enabled: nil, context_window: nil
+        )
+        XCTAssertEqual(
+            ModelCatalog.normalizedDisplayName(for: hyphenatedVersion),
+            "Cursor Claude Haiku 4.5"
         )
     }
 

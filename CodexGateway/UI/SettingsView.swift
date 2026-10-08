@@ -418,12 +418,13 @@ struct SettingsView: View {
     let choices = modelCatalogChoices(for: provider)
     let preset = ProviderPreset.matching(providerID: provider.name)
     let canFetch = providerCanFetchModels(provider)
-    let canAdd = !choices.isEmpty || canFetch || preset?.usesCatalogModels == true
+    let allAdded = providerHasKnownModelList(provider) && choices.isEmpty
+    let canAdd = !allAdded && (!choices.isEmpty || canFetch || preset?.usesCatalogModels == true)
     let isFetching = fetchingProviderID == provider.name
     let addedCount = store.models.filter {
       ($0.provider ?? $0.backend_provider ?? "") == provider.name
     }.count
-    let highlightFetch = canFetch && choices.isEmpty
+    let highlightFetch = canFetch && choices.isEmpty && !allAdded
     return HStack(alignment: .top, spacing: 12) {
       VStack(alignment: .leading, spacing: 3) {
         HStack(spacing: 8) {
@@ -439,6 +440,10 @@ struct SettingsView: View {
             Text("\(choices.count) available")
               .font(.caption2)
               .foregroundStyle(.green)
+          } else if allAdded {
+            Text("All added")
+              .font(.caption2)
+              .foregroundStyle(.secondary)
           } else if canFetch {
             Text("Fetch models first")
               .font(.caption2)
@@ -468,9 +473,11 @@ struct SettingsView: View {
             .controlSize(.small)
             .disabled(!canAdd || isFetching || loadingModelChoices)
             .help(
-              canAdd
-                ? (choices.isEmpty ? "Fetches this provider's model list, then opens the picker" : "Choose one model from this provider")
-                : "Fetch this provider's model list first"
+              allAdded
+                ? "All models from this provider are already added."
+                : canAdd
+                  ? (choices.isEmpty ? "Fetches this provider's model list, then opens the picker" : "Choose one model from this provider")
+                  : "Fetch this provider's model list first"
             )
           Button("Edit") { beginEditingProvider(provider) }
             .controlSize(.small)
@@ -949,7 +956,7 @@ struct SettingsView: View {
             .font(.caption)
             .foregroundStyle(.secondary)
         } else if editingModel == nil {
-          Text("No models available yet. Use Fetch models on the provider row, then try again.")
+          Text(addModelListEmptyMessage)
             .font(.caption)
             .foregroundStyle(.secondary)
         }
@@ -1308,27 +1315,20 @@ struct SettingsView: View {
   private func beginAddingModel(for provider: ProviderConfig) {
     isModelsSectionExpanded = true
     let choices = modelCatalogChoices(for: provider)
-    if !choices.isEmpty {
+    if !choices.isEmpty || providerHasKnownModelList(provider) {
       openModelEditorForAdd(provider: provider, options: choices)
       return
     }
 
-    let preset = ProviderPreset.matching(providerID: provider.name)
-    if preset?.usesCatalogModels == true, let preset {
-      let catalog = preset.catalogModels()
-      if !catalog.isEmpty {
-        openModelEditorForAdd(provider: provider, options: catalog)
-        return
-      }
-    }
-
-    let canFetch = providerCanFetchModels(provider)
-    if canFetch {
+    if providerCanFetchModels(provider) {
       loadingModelChoices = true
       fetchModels(for: provider) { models in
         loadingModelChoices = false
-        let options = catalogModels(from: models, for: provider)
-        guard !options.isEmpty else { return }
+        let options = ModelCatalog.excludingInstalled(
+          catalogModels(from: models, for: provider),
+          installed: store.models,
+          providerID: provider.name
+        )
         openModelEditorForAdd(provider: provider, options: options)
       } onFailure: {
         loadingModelChoices = false
@@ -1417,14 +1417,33 @@ struct SettingsView: View {
   }
 
   private func modelCatalogChoices(for provider: ProviderConfig) -> [CatalogModel] {
+    let candidates: [CatalogModel]
     if let fetched = store.fetchedModels[provider.name] {
-      return catalogModels(from: fetched, for: provider)
-    }
-
-    guard let preset = ProviderPreset.matching(providerID: provider.name), preset.usesCatalogModels else {
+      candidates = catalogModels(from: fetched, for: provider)
+    } else if let preset = ProviderPreset.matching(providerID: provider.name), preset.usesCatalogModels {
+      candidates = preset.catalogModels()
+    } else {
       return []
     }
-    return preset.catalogModels()
+    return ModelCatalog.excludingInstalled(candidates, installed: store.models, providerID: provider.name)
+  }
+
+  private func providerHasKnownModelList(_ provider: ProviderConfig) -> Bool {
+    if let fetched = store.fetchedModels[provider.name], !fetched.isEmpty { return true }
+    if let preset = ProviderPreset.matching(providerID: provider.name),
+       preset.usesCatalogModels,
+       !preset.catalogModels().isEmpty {
+      return true
+    }
+    return false
+  }
+
+  private var addModelListEmptyMessage: String {
+    if let provider = store.usableProviders.first(where: { $0.name == modelProvider }),
+       providerHasKnownModelList(provider) {
+      return "All models from this provider are already added."
+    }
+    return "No models available yet. Use Fetch models on the provider row, then try again."
   }
 
   private func catalogModels(from fetched: [FetchedModel], for provider: ProviderConfig) -> [CatalogModel] {

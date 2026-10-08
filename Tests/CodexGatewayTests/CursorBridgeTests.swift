@@ -39,6 +39,12 @@ final class CursorBridgeTests: XCTestCase {
     XCTAssertEqual(CursorBridge.displayName(for: "composer-2.5"), "Cursor Composer 2.5")
     XCTAssertEqual(CursorBridge.displayName(for: "grok-4.5-fast"), "Cursor Grok 4.5 Fast")
     XCTAssertEqual(CursorBridge.displayName(for: "Cursor Composer 2.5"), "Cursor Composer 2.5")
+    XCTAssertEqual(CursorBridge.displayName(for: "claude-haiku-4-5"), "Cursor Claude Haiku 4.5")
+    XCTAssertEqual(CursorBridge.displayName(for: "claude-haiku-5-5"), "Cursor Claude Haiku 5.5")
+    XCTAssertEqual(CursorBridge.displayName(for: "gemini-2.5-flash"), "Cursor Gemini 2.5 Flash")
+    XCTAssertEqual(CursorBridge.displayName(for: "glm-5.2"), "Cursor GLM 5.2")
+    XCTAssertEqual(CursorBridge.displayName(for: "glm-5p3-flash"), "Cursor GLM 5.3 Flash")
+    XCTAssertEqual(CursorBridge.displayName(for: "gpt-5.4-mini"), "Cursor GPT 5.4 Mini")
   }
 
   func testNodeRequirementParseAndMinimum() {

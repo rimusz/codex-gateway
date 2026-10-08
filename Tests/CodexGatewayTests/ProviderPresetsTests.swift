@@ -41,6 +41,8 @@ final class ProviderPresetsTests: XCTestCase {
         XCTAssertEqual(ClinePassCatalog.displayLabel(for: "cline-pass/kimi-k3"), "Kimi K3")
         XCTAssertEqual(ClinePassCatalog.displayLabel(for: "cline-pass/glm-5.2"), "GLM 5.2")
         XCTAssertEqual(ClinePassCatalog.displayLabel(for: "cline-pass/kimi-k2.7-code"), "Kimi K2.7 Code")
+        XCTAssertEqual(ClinePassCatalog.displayLabel(for: "claude-haiku-4-5"), "Claude Haiku 4.5")
+        XCTAssertEqual(ClinePassCatalog.displayLabel(for: "glm-5p3-flash"), "GLM 5.3 Flash")
     }
 
     func testXaiPresetDefinition() {

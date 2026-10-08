@@ -115,7 +115,7 @@ You can add, edit, and delete providers. A provider can't be removed while it st
 
 ### Models
 
-Click **Add model** to fetch the provider's model list and choose which to install. Cline Pass uses Cline's public recommended-models feed (no API key required for listing).
+Click **Add model** to fetch the provider's model list and choose which to install. Models already in the catalog are left out of that list. Cline Pass uses Cline's public recommended-models feed (no API key required for listing).
 
 Display names are auto-formatted into friendly, provider-prefixed names — Cline style:
 
@@ -126,8 +126,13 @@ Display names are auto-formatted into friendly, provider-prefixed names — Clin
 | `deepseek/deepseek-chat-v3-0324` (OpenRouter) | **OpenRouter DeepSeek Chat V3 0324** |
 | `claude-sonnet-5` (Anthropic Console) | **Anthropic Claude Sonnet 5 (API)** |
 | `claude-sonnet-5` (Claude Code) | **Anthropic Claude Sonnet 5 (OAuth)** |
+| `claude-opus-4-5` | **Claude Opus 4.5** |
+| `claude-opus-5-5` | **Claude Opus 5.5** |
+| `claude-haiku-4-5` (Cursor) | **Cursor Claude Haiku 4.5** |
+| `composer-2.5` (Cursor) | **Cursor Composer 2.5** |
+| `glm-5p3-flash` (Cursor) | **Cursor GLM 5.3 Flash** |
 
-Doubled vendor prefixes are collapsed, and any name you edit yourself is preserved.
+Doubled vendor prefixes are collapsed. Every provider, including Cursor and Cline, shows versions with a dot the way the provider does: `claude-haiku-4-5` becomes **4.5**, a dot already in the id stays (`composer-2.5`), and a `p` that stands in for a decimal (`5p3`) is shown as a dot. `claude-opus-5` and `claude-opus-5-5` stay distinct. Any name you edit yourself is preserved.
 
 ### When does Codex need a restart?
 

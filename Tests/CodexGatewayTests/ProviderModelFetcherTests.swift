@@ -220,7 +220,7 @@ final class ProviderModelFetcherTests: XCTestCase {
                 "cline-pass/kimi-k3"
             ]
         )
-        XCTAssertEqual(models.first?.ownedBy, "Deepseek V4 Pro")
+        XCTAssertEqual(models.first?.ownedBy, "DeepSeek V4 Pro")
         XCTAssertEqual(models[1].ownedBy, "GLM 5.2")
     }
 
