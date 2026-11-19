@@ -271,7 +271,7 @@ final class LoopbackHTTPServerTests: XCTestCase {
     }
 
     func testRelayForwardsTextDeltaBeforeUpstreamEnds() async {
-        let (stream, continuation) = AsyncThrowingStream<ChatUpstreamEvent, ChatUpstreamFailure>.makeStream()
+        let (stream, continuation) = AsyncThrowingStream<ChatUpstreamEvent, Error>.makeStream()
         let sink = RecordingSink()
         let delta = expectation(description: "text delta")
         sink.setOnEvent { event in
@@ -447,6 +447,71 @@ final class LoopbackHTTPServerTests: XCTestCase {
         XCTAssertFalse(sink.events.contains { ($0["type"] as? String) == "response.completed" })
         XCTAssertEqual(sink.closeCount, 1)
     }
+
+    func testRelayDoesNotRetryProviderErrorChunk() async {
+        let (sink, upstream) = await runRelay(attempts: [
+            .init(events: [
+                .status(200),
+                .line(#"data: {"error":{"message":"INVALID_ARGUMENT","code":400}}"#)
+            ]),
+            .init(events: [
+                .status(200),
+                .line(chatDataLine(toolDelta(index: 0, id: "call_new", name: "shell", arguments: #"{"a":1}"#, finish: "tool_calls")))
+            ])
+        ])
+        XCTAssertEqual(upstream.opens, 1)
+        XCTAssertEqual(failedError(sink.events)?["code"] as? String, "upstream_error")
+        XCTAssertTrue((failedError(sink.events)?["message"] as? String ?? "").contains("INVALID_ARGUMENT"))
+        XCTAssertTrue(functionCallItems(sink.events).isEmpty)
+        XCTAssertFalse(sink.events.contains { ($0["type"] as? String) == "response.completed" })
+    }
+
+    func testRelayCompletesWhenErrorChunkFollowsFinishReason() async {
+        let (sink, upstream) = await runRelay(attempts: [
+            .init(events: [
+                .status(200),
+                .line(chatDataLine(toolDelta(index: 0, id: "call_ok", name: "shell", arguments: #"{"a":1}"#, finish: "tool_calls"))),
+                .line(#"data: {"error":{"message":"late"}}"#)
+            ], failure: .interrupted("reset after done"))
+        ])
+        XCTAssertEqual(upstream.opens, 1)
+        XCTAssertEqual(functionCallDones(sink.events).first?["call_id"] as? String, "call_ok")
+        XCTAssertTrue(sink.events.contains { ($0["type"] as? String) == "response.completed" })
+        XCTAssertFalse(sink.events.contains { ($0["type"] as? String) == "response.failed" })
+    }
+
+    func testRelayRetriesMalformedDataLine() async {
+        let (sink, upstream) = await runRelay(attempts: [
+            .init(events: [
+                .status(200),
+                .line("data: {\"choices\":[")
+            ]),
+            .init(events: [
+                .status(200),
+                .line(chatDataLine(toolDelta(index: 0, id: "call_new", name: "read", arguments: #"{"p":"z"}"#, finish: "tool_calls")))
+            ])
+        ])
+        XCTAssertEqual(upstream.opens, 2)
+        XCTAssertEqual(functionCallDones(sink.events).first?["call_id"] as? String, "call_new")
+        XCTAssertFalse(sink.events.contains { ($0["type"] as? String) == "response.failed" })
+    }
+
+    func testRelayDoesNotRetryAfterWhitespaceForwarded() async {
+        let (sink, upstream) = await runRelay(attempts: [
+            .init(events: [
+                .status(200),
+                .line(chatDataLine(["choices": [["delta": ["content": "\n\n"]]]]))
+            ], failure: .interrupted("reset")),
+            .init(events: [
+                .status(200),
+                .line(chatDataLine(["choices": [["delta": ["content": "again"]]]])),
+                .line("data: [DONE]")
+            ])
+        ])
+        XCTAssertEqual(upstream.opens, 1)
+        XCTAssertEqual(sink.events.compactMap { $0["delta"] as? String }, ["\n\n"])
+        XCTAssertEqual(failedError(sink.events)?["code"] as? String, "upstream_stream_interrupted")
+    }
 }
 
 private final class RecordingSink: ResponsesEventSink, @unchecked Sendable {
@@ -542,7 +607,7 @@ private final class ScriptedChatUpstream: @unchecked Sendable {
         return _opens
     }
 
-    func open(_ attempt: Int) -> AsyncThrowingStream<ChatUpstreamEvent, ChatUpstreamFailure> {
+    func open(_ attempt: Int) -> AsyncThrowingStream<ChatUpstreamEvent, Error> {
         lock.lock()
         _opens += 1
         lock.unlock()

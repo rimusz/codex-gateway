@@ -384,6 +384,45 @@ final class TranslatorTests: XCTestCase {
         XCTAssertEqual(error?["code"] as? String, "upstream_stream_interrupted")
         XCTAssertNil(error?["code"] as? Int)
     }
+
+    func testStreamMalformedDataLineIsIncomplete() {
+        let state = ResponsesStreamState(model: "m", namespaceMap: [:])
+        var events: [[String: Any]] = []
+        state.ingestUpstreamLine("data: {\"choices\":[", write: { events.append($0) })
+        XCTAssertFalse(state.finishIfComplete(upstreamFailed: false, write: { events.append($0) }))
+        XCTAssertFalse(events.contains { ($0["type"] as? String) == "response.completed" })
+    }
+
+    func testStreamErrorAfterFinishReasonStillEmitsToolCall() {
+        let state = ResponsesStreamState(model: "m", namespaceMap: [:])
+        var events: [[String: Any]] = []
+        let write: ([String: Any]) -> Void = { events.append($0) }
+        state.ingestUpstreamLine(dataLine(toolDelta(index: 0, id: "call_ok", name: "shell", arguments: #"{"a":1}"#, finish: "tool_calls")), write: write)
+        state.ingestUpstreamLine(#"data: {"error":{"message":"late"}}"#, write: write)
+        XCTAssertTrue(state.finishIfComplete(upstreamFailed: true, write: write))
+        XCTAssertEqual(functionCallDones(events).first?["call_id"] as? String, "call_ok")
+    }
+
+    func testStreamNamelessToolCallWithFinishReasonIsIncomplete() {
+        let state = ResponsesStreamState(model: "m", namespaceMap: [:])
+        var events: [[String: Any]] = []
+        let write: ([String: Any]) -> Void = { events.append($0) }
+        state.ingestUpstreamLine(dataLine(toolDelta(index: 0, id: "call_x", arguments: #"{"a":"#, finish: "tool_calls")), write: write)
+        XCTAssertTrue(state.hasPendingToolCalls)
+        XCTAssertFalse(state.finishIfComplete(upstreamFailed: false, write: write))
+        XCTAssertTrue(functionCallItems(events).isEmpty)
+        XCTAssertFalse(events.contains { ($0["type"] as? String) == "response.completed" })
+    }
+
+    func testStreamTruncatedJSONBodyIsIncomplete() {
+        let state = ResponsesStreamState(model: "m", namespaceMap: [:])
+        var events: [[String: Any]] = []
+        let write: ([String: Any]) -> Void = { events.append($0) }
+        state.ingestUpstreamLine("{", write: write)
+        state.ingestUpstreamLine("\"choices\": [", write: write)
+        XCTAssertFalse(state.finishIfComplete(upstreamFailed: false, write: write))
+        XCTAssertFalse(events.contains { ($0["type"] as? String) == "response.completed" })
+    }
 }
 
 private func dataLine(_ object: [String: Any], spaced: Bool = true) -> String {

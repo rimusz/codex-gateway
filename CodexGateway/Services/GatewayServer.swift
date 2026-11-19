@@ -546,7 +546,7 @@ final class GatewayServer {
     namespaceMap: [String: String],
     sink: ResponsesEventSink,
     retryDelaysMs: [UInt64] = chatStreamRetryDelaysMs,
-    open: @Sendable (_ attempt: Int) -> AsyncThrowingStream<ChatUpstreamEvent, ChatUpstreamFailure>
+    open: @Sendable (_ attempt: Int) -> AsyncThrowingStream<ChatUpstreamEvent, Error>
   ) async {
     let state = ResponsesStreamState(model: requestedModel, namespaceMap: namespaceMap)
     var opened = false
@@ -613,6 +613,17 @@ final class GatewayServer {
         return
       }
 
+      if let detail = state.providerErrorMessage {
+        GatewayLog.error("Third-party stream \(requestedModel) provider error: \(detail)")
+        if opened {
+          state.fail(code: "upstream_error", message: detail, write: write)
+          sink.closeEventStream()
+        } else {
+          sink.sendJSONError(status: 502, body: jsonData(["error": detail]))
+        }
+        return
+      }
+
       if attempt < retryDelaysMs.count, !state.hasForwardedText {
         GatewayLog.error("Third-party stream \(requestedModel) ended before the tool call finished; retrying (\(attempt + 1)/\(retryDelaysMs.count))")
         state.discardAttempt()
@@ -632,7 +643,7 @@ final class GatewayServer {
     }
   }
 
-  static func urlSessionChatStream(_ request: URLRequest) -> AsyncThrowingStream<ChatUpstreamEvent, ChatUpstreamFailure> {
+  static func urlSessionChatStream(_ request: URLRequest) -> AsyncThrowingStream<ChatUpstreamEvent, Error> {
     AsyncThrowingStream { continuation in
       let task = Task {
         do {
@@ -663,7 +674,7 @@ final class GatewayServer {
     status: Int,
     lines: [String],
     thenThrow error: ChatUpstreamFailure? = nil
-  ) -> AsyncThrowingStream<ChatUpstreamEvent, ChatUpstreamFailure> {
+  ) -> AsyncThrowingStream<ChatUpstreamEvent, Error> {
     AsyncThrowingStream { continuation in
       let task = Task {
         continuation.yield(.status(status))
