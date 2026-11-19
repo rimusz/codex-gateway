@@ -243,6 +243,25 @@ final class ResponsesStreamState {
   private var toolCalls: [Int: [String: Any]] = [:]
   var onTextChunk: ((String) -> Void)?
   var onTextDone: ((String) -> Void)?
+  private var sawTerminator = false
+  private var sawDataLine = false
+  private var sawUpstreamError = false
+  private var sawNonSSEBody = false
+  private var appliedRawBody = false
+  private var rawBody = ""
+  private static let rawBodyCap = 8 * 1024 * 1024
+
+  /// Text already written to the client. Whitespace does not count: a retry may
+  /// still replace an attempt that only produced padding or reasoning.
+  var hasForwardedText: Bool {
+    !messageText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+  }
+
+  /// Any buffered slot counts, including a fragment that has not received its
+  /// name yet. A clean end would otherwise drop that fragment.
+  var hasPendingToolCalls: Bool {
+    !toolCalls.isEmpty
+  }
 
   init(model: String, namespaceMap: [String: String], onTextChunk: ((String) -> Void)? = nil, onTextDone: ((String) -> Void)? = nil) {
     self.model = model
@@ -266,6 +285,93 @@ final class ResponsesStreamState {
     reasoningText += Translator.chatText(message["reasoning_content"])
     ingestToolCalls(delta["tool_calls"] as? [[String: Any]] ?? [])
     ingestToolCalls(message["tool_calls"] as? [[String: Any]] ?? [])
+    let choices = chunk["choices"] as? [[String: Any]] ?? []
+    for candidate in choices {
+      if let reason = candidate["finish_reason"] as? String, !reason.isEmpty {
+        sawTerminator = true
+        break
+      }
+    }
+  }
+
+  /// One upstream line. `data:` with or without a space, `[DONE]`, and a JSON
+  /// error chunk are recognized. Other lines before the first `data:` line are
+  /// kept so a non-SSE JSON body can still be translated.
+  func ingestUpstreamLine(_ line: String, write: ([String: Any]) -> Void) {
+    let trimmed = line.trimmingCharacters(in: .whitespacesAndNewlines)
+    guard !trimmed.isEmpty else { return }
+    guard trimmed.hasPrefix("data:") else {
+      guard !sawDataLine else { return }
+      let addition = (rawBody.isEmpty ? "" : "\n") + trimmed
+      guard rawBody.utf8.count + addition.utf8.count <= Self.rawBodyCap else { return }
+      rawBody += addition
+      return
+    }
+    sawDataLine = true
+    var payload = String(trimmed.dropFirst("data:".count))
+    if payload.first == " " { payload.removeFirst() }
+    if payload == "[DONE]" {
+      sawTerminator = true
+      return
+    }
+    guard let data = payload.data(using: .utf8),
+          let chunk = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { return }
+    if chunk["error"] != nil {
+      sawUpstreamError = true
+      GatewayLog.error("Upstream chat stream error chunk: \(String(payload.prefix(200)))")
+      return
+    }
+    writeChatDelta(chunk, write: write)
+  }
+
+  /// Emit the assembled response when this attempt is finished.
+  /// A pending tool call without `finish_reason`, `[DONE]`, or a full JSON body
+  /// stays buffered so the caller can retry or fail without a partial `function_call`.
+  @discardableResult
+  func finishIfComplete(upstreamFailed: Bool, write: ([String: Any]) -> Void) -> Bool {
+    applyRawBodyIfNeeded(write: write)
+    if sawUpstreamError { return false }
+    let complete = sawTerminator || sawNonSSEBody || (!upstreamFailed && !hasPendingToolCalls)
+    guard complete else { return false }
+    finish(write: write)
+    return true
+  }
+
+  /// Drop this attempt's buffered tool calls and flags. Keeps the response id,
+  /// sequence, and any text already forwarded so a retry does not restart the turn.
+  func discardAttempt() {
+    toolCalls = [:]
+    reasoningText = ""
+    sawTerminator = false
+    sawDataLine = false
+    sawUpstreamError = false
+    sawNonSSEBody = false
+    appliedRawBody = false
+    rawBody = ""
+  }
+
+  func fail(code: String, message: String, write: ([String: Any]) -> Void) {
+    var resp = response("failed")
+    resp["error"] = [
+      "type": "upstream_error",
+      "code": code,
+      "message": message
+    ] as [String: Any]
+    write(wrap(["type": "response.failed", "response": resp]))
+  }
+
+  private func applyRawBodyIfNeeded(write: ([String: Any]) -> Void) {
+    guard !appliedRawBody, !sawDataLine, !rawBody.isEmpty else { return }
+    appliedRawBody = true
+    guard let data = rawBody.data(using: .utf8),
+          let payload = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { return }
+    if payload["error"] != nil {
+      sawUpstreamError = true
+      return
+    }
+    guard payload["choices"] != nil else { return }
+    sawNonSSEBody = true
+    writeChatDelta(payload, write: write)
   }
 
   func finish(write: ([String: Any]) -> Void, usage: [String: Any]? = nil) {

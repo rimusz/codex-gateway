@@ -75,7 +75,7 @@ codex-gateway/                    # GitHub repo (`rimusz/codex-gateway`; legacy 
 │   ├── AppIconProvider.swift
 │   ├── CodexBrandIcon.swift
 │   ├── Services/
-│   │   ├── GatewayServer.swift   # HTTP routing
+│   │   ├── GatewayServer.swift   # HTTP routing and chat-stream relay
 │   │   ├── LoopbackHTTPServer.swift
 │   │   ├── Translator.swift      # Responses ↔ Chat translation
 │   │   ├── ModelCatalog.swift    # custom_model_catalog.json + providers
@@ -158,6 +158,8 @@ The gateway is intentionally minimal: only the routes Codex Desktop and the app 
 
 Any tool on the same Mac that speaks OpenAI Chat Completions can use `http://127.0.0.1:8765/v1` while CodexGateway is running. Custom model slugs come from `GET /v1/models`; upstream provider keys are injected from `~/.codexgateway/providers.json`. Native GPT pass-through uses `~/.codex/auth.json` when the client omits `Authorization` **or** sends a placeholder (`dummy`, `not-used`, …) — Codex's managed provider sets `experimental_bearer_token = "dummy"` so the desktop app will call the local gateway; that dummy must not be forwarded to OpenAI (`passthroughAuthorization` returns `nil` when there is no ChatGPT token, and the header is removed). ChatGPT sign-in (`auth_mode = chatgpt` + `tokens.account_id`) routes native `/v1/responses` to `https://chatgpt.com/backend-api/codex/…` and injects `chatgpt-account-id` when Codex omitted it — a ChatGPT OAuth token against `api.openai.com` returns 401 `api.responses.write` and Codex stores an empty assistant turn. Outbound HTTPS uses `URLSession` and the macOS trust store (Zscaler corp root in Keychain when present; public CAs otherwise — no PEM pinning). Custom routing matches the exact catalog slug, or a unique unprefixed upstream id / `provider/model` suffix (`minimax-m2.5` → `openrouter/minimax-m2.5`). Native Codex slugs never alias to a custom model. The protected set is the built-in GPT-5 slugs plus slugs from `codex debug models --bundled` (cached, 5s timeout). Those slugs are not written into the custom picker. Third-party streaming translates Chat Completions tool calls into Responses `function_call` events (dropping them used to finish the Codex turn with a blank assistant message).
 
+Custom-model `/v1/responses` streams are written to Codex as chunked SSE as upstream lines arrive. Text deltas are forwarded immediately. Tool-call arguments are buffered per index and emitted only when that upstream attempt is finished (`finish_reason`, `data: [DONE]`, or a non-SSE JSON body). A dropped socket, a truncated SSE body, or an upstream error chunk before a pending tool call is finished is retried up to twice (250 ms, then 750 ms) when no text has been forwarded yet. The successful attempt's `call_id` and arguments are emitted once. Text is not deduped across attempts: a retry is a new sample, so once a text delta has been sent the gateway ends the stream with `response.failed` (`error.code` string `upstream_stream_interrupted`) instead of splicing two answers together. HTTP error statuses are not retried (Codex already retries those). There is no in-memory response replay cache and no `previous_response_id` handling — Codex re-POSTs the whole turn, and each gateway response id is new, so a cache keyed by response id would never be hit. Grok OAuth uses the same assembler with retries disabled, because its Chat SSE is synthesized with a terminator after the upstream call has already finished.
+
 End-user setup (Zero TUI, CLI `zero exec`, provider profile, troubleshooting): **`README.md` → Using CodexGateway with Zero**.
 
 ---
@@ -229,7 +231,7 @@ Release assets: `CodexGateway-{tag}.app.zip`, `CodexGateway-{tag}-macOS.dmg` (no
 | Restore menu-bar mode after windows close | `AppActivationPolicy.restoreAccessoryIfNoVisibleWindows` (About, Settings, Doctor, UpdatePanel, Setup) |
 | First-run setup | `SetupWindowController` + `SetupView` + `SetupStore` + `SetupFlow` / `SetupPresentation` / `SetupSession`. Shows when the catalog is empty; Skip is this launch only. Connect installs without seeding/patching; Close/Skip cancels work and removes a new provider or restores pre-existing DEBUG-forced data. Empty fetches allow manual models. Finish transactionally replaces rows, applies a throwing catalog/config write, rolls back on failure, then asks **Restart Codex?**. `--setup` is DEBUG-only; migrating bundles use `AppBundleMigration.isLegacyBundleMigrationPending`. |
 | Add gateway route | `GatewayServer.swift` |
-| Change translation logic | `Translator.swift` |
+| Change translation logic | `Translator.swift` (`ResponsesStreamState`), `GatewayServer.relayChatStream` |
 | Model catalog / providers | `ModelCatalog.swift`, `ProviderPresets.swift`, `ProviderModelFetcher.swift`, `Paths.swift`. `findModel(requested:in:)` is exact slug, then unique unprefixed upstream/`provider/id` suffix; `requestedModelID(from:)` reads string, `{id,slug,model}`, or `model_id`. Native slugs (built-in GPT-5 ids plus `codex debug models --bundled`, cached, 5s timeout) are not written into the custom picker and are not aliased onto a custom model. `codexPickerModels` exports custom models only. Settings **Add model** uses `ModelCatalog.excludingInstalled` so a model already saved for that provider (same slug or same upstream id) is omitted from the picker and from the row's available count. |
 | Install provider preset | `PresetInstaller`, Settings window (provider only by default; **xAI Grok (OAuth)** also seeds a suggested model; **Cursor** validates API key → `CursorBridgeKeychain` + enables `CursorBridgeRuntime` on port **18788**). **Anthropic (Claude)** uses `auth_kind: anthropic` (Console key) and fetches `GET {base_url}/models` (`https://api.anthropic.com/v1` + `/models` → host path `/v1/models`; OpenAI `data[]`, plus `display_name`). **Anthropic (Claude Code)** is a second preset (`auth_kind: claude_code`) on the same OpenAI-compat base; Settings **Use Claude Code login** reads the local session at runtime (no token field). Cline Pass listing: `ProviderModelFetcher.fetchClinePassRecommended` → `https://api.cline.bot/api/v1/ai/cline/recommended-models` (no API key) |
 | Custom provider Spark example | `CustomProviderExample` + Settings **Add Provider** → Add custom provider → “Fill Spark example” (`spark-deepseek` → `http://spark:8001/v1`) |
@@ -256,10 +258,10 @@ Release assets: `CodexGateway-{tag}.app.zip`, `CodexGateway-{tag}-macOS.dmg` (no
 
 Unit tests in `Tests/CodexGatewayTests/`:
 
-- `TranslatorTests` — translation, namespace mapping, think stripping, Responses stream tool-call emission
+- `TranslatorTests` — translation, namespace mapping, think stripping, Responses stream tool-call assembly (buffered until `finish_reason` / `[DONE]`)
 - `CodexConfigTests` — managed block stripping, ChatGPT `account_id` parse
 - `ModelCatalogTests` — provider/model API parsing, `requestedModelID`, unique unprefixed `findModel` (and native-slug protection)
-- `LoopbackHTTPServerTests` — also `GatewayServer` dummy/`passthroughAuthorization` / ChatGPT backend helpers
+- `LoopbackHTTPServerTests` — chunked bodies, `relayChatStream` (dropped tool-call retry, retries exhausted, text forwarded before stream end, no retry after text), and `GatewayServer` dummy/`passthroughAuthorization` / ChatGPT backend helpers
 - `ProviderPresetsTests` — preset definitions (incl. Anthropic Console + Claude Code), Grok OAuth install seed, Anthropic / Claude Code auth headers
 - `ClaudeCodeSessionTests` — credentials fixture parse/probe/status (fake `sk-ant-oat-*` only)
 - `CursorBridgeTests` — managed bridge port 18788, catalog filter, Node TLS, runtime helpers

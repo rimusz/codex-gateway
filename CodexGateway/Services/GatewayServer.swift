@@ -1,5 +1,27 @@
 import Foundation
 
+enum ChatUpstreamEvent: Sendable {
+  case status(Int)
+  case line(String)
+}
+
+enum ChatUpstreamFailure: LocalizedError, Sendable {
+  case interrupted(String)
+
+  var errorDescription: String? {
+    switch self {
+    case .interrupted(let message): return message
+    }
+  }
+}
+
+protocol ResponsesEventSink: AnyObject, Sendable {
+  func sendJSONError(status: Int, body: Data)
+  func openEventStream()
+  func sendEvent(_ sseFrame: Data)
+  func closeEventStream()
+}
+
 final class GatewayServer {
   static let shared = GatewayServer()
 
@@ -235,85 +257,38 @@ final class GatewayServer {
   }
 
   /// Feed OpenAI Chat Completions SSE through `ResponsesStreamState` (same as third-party stream).
+  /// Grok's converter already synthesizes `finish_reason` and `[DONE]`, so a dropped
+  /// socket is not visible here and retries would only repeat a finished buffer.
   private func emitChatSSEAsResponses(
     chatSSE: String,
     requestedModel: String,
     namespaceMap: [String: String],
     response: HTTPResponse
   ) {
-    let state = ResponsesStreamState(model: requestedModel, namespaceMap: namespaceMap)
-    var events: [Data] = []
-    let write: ([String: Any]) -> Void = { payload in
-      if let d = try? JSONSerialization.data(withJSONObject: payload) {
-        events.append("data: ".data(using: .utf8)! + d + "\n\n".data(using: .utf8)!)
+    let lines = chatSSE.components(separatedBy: "\n")
+    Task.detached(priority: .userInitiated) {
+      await GatewayServer.relayChatStream(
+        requestedModel: requestedModel,
+        namespaceMap: namespaceMap,
+        sink: response,
+        retryDelaysMs: []
+      ) { _ in
+        GatewayServer.bufferedChatStream(status: 200, lines: lines)
       }
     }
-    state.start(write: write)
-    for line in chatSSE.components(separatedBy: "\n") {
-      guard line.hasPrefix("data: "), line != "data: [DONE]" else { continue }
-      let jsonStr = String(line.dropFirst(6))
-      guard let d = jsonStr.data(using: .utf8),
-            let chunk = try? JSONSerialization.jsonObject(with: d) as? [String: Any] else { continue }
-      state.writeChatDelta(chunk, write: write)
-    }
-    state.finish(write: write)
-    let body = events.reduce(into: Data()) { $0.append($1) }
-    response.send(status: 200, headers: [
-      "Content-Type": "text/event-stream",
-      "Cache-Control": "no-cache",
-      "Connection": "keep-alive"
-    ], body: body)
   }
 
   private func streamThirdParty(urlRequest: URLRequest, requestedModel: String, namespaceMap: [String: String], response: HTTPResponse) {
     let req = urlRequest
-    let state = ResponsesStreamState(model: requestedModel, namespaceMap: namespaceMap)
-
-    URLSession.shared.dataTask(with: req) { data, urlResponse, error in
-      let status = (urlResponse as? HTTPURLResponse)?.statusCode ?? 0
-      guard let data, error == nil else {
-        self.json(response, ["error": error?.localizedDescription ?? "stream failed"], status: 502)
-        return
+    Task.detached(priority: .userInitiated) {
+      await GatewayServer.relayChatStream(
+        requestedModel: requestedModel,
+        namespaceMap: namespaceMap,
+        sink: response
+      ) { _ in
+        GatewayServer.urlSessionChatStream(req)
       }
-      if status >= 400 {
-        let preview = String(data: data.prefix(400), encoding: .utf8) ?? "<binary>"
-        GatewayLog.error("Third-party stream \(requestedModel) -> \(req.url?.absoluteString ?? "?") status=\(status) preview=\(preview)")
-        self.json(response, GatewayServer.upstreamErrorPayload(status: status, bodyPreview: preview), status: status)
-        return
-      }
-      let text = String(data: data, encoding: .utf8) ?? ""
-      var events: [Data] = []
-      let write: ([String: Any]) -> Void = { payload in
-        if let d = try? JSONSerialization.data(withJSONObject: payload) {
-          events.append("data: ".data(using: .utf8)! + d + "\n\n".data(using: .utf8)!)
-        }
-      }
-      state.start(write: write)
-      let sseLines = text.components(separatedBy: "\n").filter { $0.hasPrefix("data: ") && $0 != "data: [DONE]" }
-      if sseLines.isEmpty,
-         let payload = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-         payload["choices"] != nil {
-        state.writeChatDelta(payload, write: write)
-      } else {
-        for line in text.components(separatedBy: "\n") {
-          guard line.hasPrefix("data: "), line != "data: [DONE]" else { continue }
-          let jsonStr = String(line.dropFirst(6))
-          guard let d = jsonStr.data(using: .utf8),
-                let chunk = try? JSONSerialization.jsonObject(with: d) as? [String: Any] else { continue }
-          state.writeChatDelta(chunk, write: write)
-        }
-      }
-      state.finish(write: write)
-      let body = events.reduce(into: Data()) { $0.append($1) }
-      if body.isEmpty {
-        GatewayLog.error("Third-party stream \(requestedModel) produced no Responses events")
-      }
-      response.send(status: 200, headers: [
-        "Content-Type": "text/event-stream",
-        "Cache-Control": "no-cache",
-        "Connection": "keep-alive"
-      ], body: body)
-    }.resume()
+    }
   }
 
   private func passthroughResponses(request: HTTPRequest, body: [String: Any], response: HTTPResponse) {
@@ -541,19 +516,223 @@ final class GatewayServer {
 
   /// Builds an OpenAI-style error payload so upstream provider failures (4xx/5xx)
   /// surface back to Codex instead of being translated into an empty completion.
+  static func upstreamErrorMessage(status: Int, bodyPreview: String) -> String {
+    "Upstream provider returned HTTP \(status): \(bodyPreview)"
+  }
+
   static func upstreamErrorPayload(status: Int, bodyPreview: String) -> [String: Any] {
     [
       "error": [
-        "message": "Upstream provider returned HTTP \(status): \(bodyPreview)",
+        "message": upstreamErrorMessage(status: status, bodyPreview: bodyPreview),
         "type": "upstream_error",
         "code": status
       ] as [String: Any]
     ]
   }
 
+  /// Two retries after the first attempt. Short enough that Codex's idle timeout
+  /// does not fire, long enough for a reset Gemini stream to accept a new POST.
+  static let chatStreamRetryDelaysMs: [UInt64] = [250, 750]
+
+  /// Relay one Chat Completions body to a Responses SSE sink.
+  ///
+  /// Tool-call arguments stay inside `ResponsesStreamState` until the attempt
+  /// finishes. A drop before that, with no text forwarded yet, runs the request
+  /// again. Text is not deduped across attempts: sampling is not deterministic, so
+  /// once a delta has been sent the turn fails with `response.failed` instead of
+  /// splicing a second sample onto the first.
+  static func relayChatStream(
+    requestedModel: String,
+    namespaceMap: [String: String],
+    sink: ResponsesEventSink,
+    retryDelaysMs: [UInt64] = chatStreamRetryDelaysMs,
+    open: @Sendable (_ attempt: Int) -> AsyncThrowingStream<ChatUpstreamEvent, ChatUpstreamFailure>
+  ) async {
+    let state = ResponsesStreamState(model: requestedModel, namespaceMap: namespaceMap)
+    var opened = false
+    let write: ([String: Any]) -> Void = { payload in
+      guard let frame = GatewayServer.sseFrame(payload) else { return }
+      sink.sendEvent(frame)
+    }
+    let attempts = retryDelaysMs.count + 1
+
+    for attempt in 0..<attempts {
+      var statusCode: Int?
+      var failure: String?
+      var errorPreview = ""
+
+      let stream = open(attempt)
+      do {
+        ingest: for try await event in stream {
+          switch event {
+          case .status(let code):
+            statusCode = code
+            if (200..<300).contains(code), !opened {
+              sink.openEventStream()
+              state.start(write: write)
+              opened = true
+            }
+          case .line(let line):
+            guard let code = statusCode else { continue }
+            if !(200..<300).contains(code) {
+              appendErrorPreview(&errorPreview, line, limit: 400)
+              if errorPreview.count >= 400 { break ingest }
+            } else {
+              state.ingestUpstreamLine(line, write: write)
+            }
+          }
+        }
+      } catch {
+        failure = error.localizedDescription
+      }
+
+      if let code = statusCode, !(200..<300).contains(code) {
+        if !opened {
+          GatewayLog.error("Third-party stream \(requestedModel) status=\(code) preview=\(errorPreview)")
+          let payload = upstreamErrorPayload(status: code, bodyPreview: errorPreview)
+          sink.sendJSONError(status: code >= 400 ? code : 502, body: jsonData(payload))
+          return
+        }
+        state.fail(
+          code: "upstream_error",
+          message: upstreamErrorMessage(status: code, bodyPreview: errorPreview),
+          write: write
+        )
+        sink.closeEventStream()
+        return
+      }
+
+      if statusCode == nil, !opened {
+        sink.sendJSONError(status: 502, body: jsonData(["error": failure ?? "stream failed"]))
+        return
+      }
+
+      let dropped = failure != nil || statusCode == nil
+      if state.finishIfComplete(upstreamFailed: dropped, write: write) {
+        sink.closeEventStream()
+        return
+      }
+
+      if attempt < retryDelaysMs.count, !state.hasForwardedText {
+        GatewayLog.error("Third-party stream \(requestedModel) ended before the tool call finished; retrying (\(attempt + 1)/\(retryDelaysMs.count))")
+        state.discardAttempt()
+        try? await Task.sleep(nanoseconds: retryDelaysMs[attempt] * 1_000_000)
+        continue
+      }
+
+      let reason = failure ?? (state.hasForwardedText ? "text already streamed" : "truncated stream")
+      GatewayLog.error("Third-party stream \(requestedModel) failed after \(attempt) retries: \(reason)")
+      state.fail(
+        code: "upstream_stream_interrupted",
+        message: "Upstream provider stream ended before the response finished (\(reason)); CodexGateway retried \(attempt)×.",
+        write: write
+      )
+      sink.closeEventStream()
+      return
+    }
+  }
+
+  static func urlSessionChatStream(_ request: URLRequest) -> AsyncThrowingStream<ChatUpstreamEvent, ChatUpstreamFailure> {
+    AsyncThrowingStream { continuation in
+      let task = Task {
+        do {
+          let (bytes, urlResponse) = try await URLSession.shared.bytes(for: request)
+          let code = (urlResponse as? HTTPURLResponse)?.statusCode ?? 0
+          continuation.yield(.status(code))
+          for try await line in bytes.lines {
+            if Task.isCancelled {
+              continuation.finish()
+              return
+            }
+            continuation.yield(.line(line))
+          }
+          if Task.isCancelled {
+            continuation.finish()
+            return
+          }
+          continuation.finish()
+        } catch {
+          continuation.finish(throwing: .interrupted(error.localizedDescription))
+        }
+      }
+      continuation.onTermination = { _ in task.cancel() }
+    }
+  }
+
+  static func bufferedChatStream(
+    status: Int,
+    lines: [String],
+    thenThrow error: ChatUpstreamFailure? = nil
+  ) -> AsyncThrowingStream<ChatUpstreamEvent, ChatUpstreamFailure> {
+    AsyncThrowingStream { continuation in
+      let task = Task {
+        continuation.yield(.status(status))
+        for line in lines {
+          if Task.isCancelled {
+            continuation.finish()
+            return
+          }
+          continuation.yield(.line(line))
+        }
+        if Task.isCancelled {
+          continuation.finish()
+          return
+        }
+        if let error {
+          continuation.finish(throwing: error)
+        } else {
+          continuation.finish()
+        }
+      }
+      continuation.onTermination = { _ in task.cancel() }
+    }
+  }
+
+  private static func sseFrame(_ payload: [String: Any]) -> Data? {
+    guard let data = try? JSONSerialization.data(withJSONObject: payload) else { return nil }
+    var frame = Data("data: ".utf8)
+    frame.append(data)
+    frame.append(Data("\n\n".utf8))
+    return frame
+  }
+
+  private static func jsonData(_ payload: [String: Any]) -> Data {
+    (try? JSONSerialization.data(withJSONObject: payload)) ?? Data()
+  }
+
+  private static func appendErrorPreview(_ preview: inout String, _ line: String, limit: Int) {
+    let piece = line.trimmingCharacters(in: .whitespacesAndNewlines)
+    guard !piece.isEmpty, preview.count < limit else { return }
+    if !preview.isEmpty { preview += "\n" }
+    let room = limit - preview.count
+    guard room > 0 else { return }
+    preview += String(piece.prefix(room))
+  }
+
   private func json(_ response: HTTPResponse, _ object: [String: Any], status: Int = 200) {
     if let data = try? JSONSerialization.data(withJSONObject: object) {
       response.send(status: status, headers: ["Content-Type": "application/json"], body: data)
     }
+  }
+}
+
+extension HTTPResponse: ResponsesEventSink {
+  func sendJSONError(status: Int, body: Data) {
+    send(status: status, headers: ["Content-Type": "application/json"], body: body)
+  }
+
+  func openEventStream() {
+    startStream(status: 200, headers: [
+      "Content-Type": "text/event-stream",
+      "Cache-Control": "no-cache"
+    ])
+  }
+
+  func sendEvent(_ sseFrame: Data) {
+    writeChunk(sseFrame)
+  }
+
+  func closeEventStream() {
+    endStream()
   }
 }
