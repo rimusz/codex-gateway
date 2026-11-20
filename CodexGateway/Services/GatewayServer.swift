@@ -141,7 +141,12 @@ final class GatewayServer {
 
   private func handleThirdPartyResponses(body: [String: Any], requestedModel: String, provider: ProviderConfig, upstreamModel: String, sessionId: String?, response: HTTPResponse) {
     let namespaceMap = Translator.extractNamespaceMap(tools: body["tools"] as? [[String: Any]])
-    let chatBody = Translator.responsesToChat(body: body, upstreamModel: upstreamModel, sessionId: sessionId)
+    let chatBody = Translator.responsesToChat(
+      body: body,
+      upstreamModel: upstreamModel,
+      sessionId: sessionId,
+      providerID: provider.name
+    )
     let stream = chatBody["stream"] as? Bool ?? true
 
     if provider.usesGrokOAuth {
@@ -175,7 +180,13 @@ final class GatewayServer {
       urlRequest.httpBody = try? JSONSerialization.data(withJSONObject: chatBody)
 
       if stream {
-        self.streamThirdParty(urlRequest: urlRequest, requestedModel: requestedModel, namespaceMap: namespaceMap, response: response)
+        self.streamThirdParty(
+          urlRequest: urlRequest,
+          requestedModel: requestedModel,
+          namespaceMap: namespaceMap,
+          providerID: provider.name,
+          response: response
+        )
       } else {
         URLSession.shared.dataTask(with: urlRequest) { data, urlResponse, error in
           let status = (urlResponse as? HTTPURLResponse)?.statusCode ?? 0
@@ -193,7 +204,12 @@ final class GatewayServer {
             self.json(response, GatewayServer.upstreamErrorPayload(status: 502, bodyPreview: "Invalid upstream JSON"), status: 502)
             return
           }
-          let translated = Translator.chatCompletionToResponse(payload: payload, requestedModel: requestedModel, namespaceMap: namespaceMap)
+          let translated = Translator.chatCompletionToResponse(
+            payload: payload,
+            requestedModel: requestedModel,
+            namespaceMap: namespaceMap,
+            providerID: provider.name
+          )
           self.json(response, translated)
         }.resume()
       }
@@ -219,6 +235,7 @@ final class GatewayServer {
             chatSSE: String(data: result.data, encoding: .utf8) ?? "",
             requestedModel: requestedModel,
             namespaceMap: namespaceMap,
+            providerID: provider.name,
             response: response
           )
         } else {
@@ -229,7 +246,8 @@ final class GatewayServer {
           let translated = Translator.chatCompletionToResponse(
             payload: payload,
             requestedModel: requestedModel,
-            namespaceMap: namespaceMap
+            namespaceMap: namespaceMap,
+            providerID: provider.name
           )
           self.json(response, translated)
         }
@@ -265,6 +283,7 @@ final class GatewayServer {
     chatSSE: String,
     requestedModel: String,
     namespaceMap: [String: String],
+    providerID: String? = nil,
     response: ResponsesEventSink
   ) {
     let lines = chatSSE.components(separatedBy: "\n")
@@ -273,20 +292,28 @@ final class GatewayServer {
         requestedModel: requestedModel,
         namespaceMap: namespaceMap,
         sink: response,
-        retryDelaysMs: []
+        retryDelaysMs: [],
+        providerID: providerID
       ) { _ in
         GatewayServer.bufferedChatStream(status: 200, lines: lines)
       }
     }
   }
 
-  private func streamThirdParty(urlRequest: URLRequest, requestedModel: String, namespaceMap: [String: String], response: HTTPResponse) {
+  private func streamThirdParty(
+    urlRequest: URLRequest,
+    requestedModel: String,
+    namespaceMap: [String: String],
+    providerID: String?,
+    response: HTTPResponse
+  ) {
     let req = urlRequest
     Task.detached(priority: .userInitiated) {
       await GatewayServer.relayChatStream(
         requestedModel: requestedModel,
         namespaceMap: namespaceMap,
-        sink: response
+        sink: response,
+        providerID: providerID
       ) { _ in
         GatewayServer.urlSessionChatStream(req)
       }
@@ -548,9 +575,16 @@ final class GatewayServer {
     namespaceMap: [String: String],
     sink: ResponsesEventSink,
     retryDelaysMs: [UInt64] = chatStreamRetryDelaysMs,
+    providerID: String? = nil,
+    extraContentStore: ToolCallExtraContentStore = .shared,
     open: @Sendable (_ attempt: Int) -> ChatUpstreamStream
   ) async {
-    let state = ResponsesStreamState(model: requestedModel, namespaceMap: namespaceMap)
+    let state = ResponsesStreamState(
+      model: requestedModel,
+      namespaceMap: namespaceMap,
+      providerID: providerID,
+      extraContentStore: extraContentStore
+    )
     var opened = false
     let write: ([String: Any]) -> Void = { payload in
       guard let frame = GatewayServer.sseFrame(payload) else { return }

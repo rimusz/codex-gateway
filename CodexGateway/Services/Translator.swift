@@ -36,12 +36,22 @@ enum Translator {
     return (name, nil)
   }
 
-  static func responsesToChat(body: [String: Any], upstreamModel: String, sessionId: String?) -> [String: Any] {
+  static func responsesToChat(
+    body: [String: Any],
+    upstreamModel: String,
+    sessionId: String?,
+    providerID: String? = nil,
+    extraContentStore: ToolCallExtraContentStore = .shared
+  ) -> [String: Any] {
     var messages: [[String: Any]] = []
     let system = contentToText(body["instructions"])
     if !system.isEmpty { messages.append(["role": "system", "content": system]) }
 
-    let inputMessages = responsesInputToMessages(body["input"])
+    let inputMessages = responsesInputToMessages(
+      body["input"],
+      providerID: providerID,
+      extraContentStore: extraContentStore
+    )
     for var m in inputMessages {
       if m["_reasoning_only"] as? Bool == true { continue }
       m.removeValue(forKey: "_reasoning_only")
@@ -67,7 +77,13 @@ enum Translator {
     return chat
   }
 
-  static func chatCompletionToResponse(payload: [String: Any], requestedModel: String, namespaceMap: [String: String]) -> [String: Any] {
+  static func chatCompletionToResponse(
+    payload: [String: Any],
+    requestedModel: String,
+    namespaceMap: [String: String],
+    providerID: String? = nil,
+    extraContentStore: ToolCallExtraContentStore = .shared
+  ) -> [String: Any] {
     let choices = payload["choices"] as? [[String: Any]] ?? []
     let choice = choices.first ?? [:]
     let message = choice["message"] as? [String: Any] ?? [:]
@@ -92,15 +108,21 @@ enum Translator {
       let fn = call["function"] as? [String: Any] ?? [:]
       let name = fn["name"] as? String ?? ""
       let (flatName, namespace) = unflattenToolCall(name: name, namespaceMap: namespaceMap)
+      let rawId = call["id"] ?? "call_0"
       var item: [String: Any] = [
-        "id": call["id"] ?? "call_0",
+        "id": rawId,
         "type": "function_call",
         "status": "completed",
-        "call_id": call["id"] ?? "call_0",
+        "call_id": rawId,
         "name": flatName,
         "arguments": fn["arguments"] ?? "{}"
       ]
       if let namespace { item["namespace"] = namespace }
+      // Codex's function_call schema drops unknown fields, so the signature stays
+      // in the gateway cache and is not written onto the Responses item.
+      if let providerID, let callID = rawId as? String, let extra = call["extra_content"] as? [String: Any] {
+        extraContentStore.remember(providerID: providerID, callID: callID, extraContent: extra)
+      }
       output.append(item)
     }
 
@@ -148,7 +170,17 @@ enum Translator {
     return ""
   }
 
-  private static func responsesInputToMessages(_ value: Any?) -> [[String: Any]] {
+  private static func callIdentifier(_ item: [String: Any]) -> String {
+    if let id = item["call_id"] as? String, !id.isEmpty { return id }
+    if let id = item["id"] as? String, !id.isEmpty { return id }
+    return "call"
+  }
+
+  private static func responsesInputToMessages(
+    _ value: Any?,
+    providerID: String?,
+    extraContentStore: ToolCallExtraContentStore
+  ) -> [[String: Any]] {
     if let s = value as? String { return [["role": "user", "content": s]] }
     guard let items = value as? [[String: Any]] else { return [] }
     var messages: [[String: Any]] = []
@@ -165,14 +197,23 @@ enum Translator {
         if role == "developer" { role = "system" }
         messages.append(["role": role, "content": contentToText(item["content"])])
       } else if type == "function_call" {
-        pendingTools.append([
-          "id": item["call_id"] ?? item["id"] ?? "call",
+        let callID = callIdentifier(item)
+        var call: [String: Any] = [
+          "id": callID,
           "type": "function",
           "function": [
             "name": item["name"] ?? "",
             "arguments": item["arguments"] ?? "{}"
           ]
-        ])
+        ]
+        // Replay only what this provider returned. An extra_content field on the
+        // Responses input is ignored: Codex does not send one, and copying it
+        // would attach another provider's signature to this request.
+        if let providerID,
+           let extra = extraContentStore.extraContent(providerID: providerID, callID: callID) {
+          call["extra_content"] = extra
+        }
+        pendingTools.append(call)
       } else if type == "function_call_output" {
         if !pendingTools.isEmpty {
           messages.append(["role": "assistant", "content": NSNull(), "tool_calls": pendingTools])
@@ -230,11 +271,73 @@ enum Translator {
   }
 }
 
+/// In-memory `tool_calls[].extra_content` for providers that require it on the
+/// next turn. Codex re-sends `function_call` items from a fixed schema
+/// (`call_id`, `name`, `arguments`, `namespace`) and drops unknown fields such
+/// as Gemini's `extra_content.google.thought_signature`, so the gateway keeps
+/// the object and puts it back only when the follow-up goes to the same provider.
+final class ToolCallExtraContentStore: @unchecked Sendable {
+  static let shared = ToolCallExtraContentStore()
+  /// A Codex thread re-sends every earlier function call. The cap has to cover
+  /// a long thread; the oldest call id is dropped first.
+  static let maxEntries = 1024
+
+  private let lock = NSLock()
+  private var order: [String] = []
+  private var entries: [String: [String: Any]] = [:]
+
+  func remember(providerID: String, callID: String, extraContent: [String: Any]) {
+    let provider = providerID.trimmingCharacters(in: .whitespacesAndNewlines)
+    let call = callID.trimmingCharacters(in: .whitespacesAndNewlines)
+    guard !provider.isEmpty, !call.isEmpty, !extraContent.isEmpty else { return }
+    guard let copy = Self.detachedCopy(extraContent) else { return }
+    let key = Self.key(providerID: provider, callID: call)
+    lock.lock()
+    defer { lock.unlock() }
+    if entries[key] == nil {
+      order.append(key)
+    }
+    entries[key] = copy
+    while order.count > Self.maxEntries {
+      let oldest = order.removeFirst()
+      entries.removeValue(forKey: oldest)
+    }
+  }
+
+  func extraContent(providerID: String, callID: String) -> [String: Any]? {
+    let provider = providerID.trimmingCharacters(in: .whitespacesAndNewlines)
+    let call = callID.trimmingCharacters(in: .whitespacesAndNewlines)
+    guard !provider.isEmpty, !call.isEmpty else { return nil }
+    lock.lock()
+    let stored = entries[Self.key(providerID: provider, callID: call)]
+    lock.unlock()
+    guard let stored else { return nil }
+    return Self.detachedCopy(stored)
+  }
+
+  private static func key(providerID: String, callID: String) -> String {
+    providerID + "\u{1f}" + callID
+  }
+
+  /// Independent JSON tree so a later mutation of the parse buffer cannot
+  /// change the stored signature bytes.
+  private static func detachedCopy(_ value: [String: Any]) -> [String: Any]? {
+    guard JSONSerialization.isValidJSONObject(value),
+          let data = try? JSONSerialization.data(withJSONObject: value),
+          let copy = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+      return nil
+    }
+    return copy
+  }
+}
+
 final class ResponsesStreamState {
   let responseId = "resp_\(UUID().uuidString.replacingOccurrences(of: "-", with: ""))"
   private let messageItemId = "msg_\(UUID().uuidString.replacingOccurrences(of: "-", with: ""))"
   private let model: String
   private let namespaceMap: [String: String]
+  private let providerID: String?
+  private let extraContentStore: ToolCallExtraContentStore
   private var messageText = ""
   private var reasoningText = ""
   private var messageOpened = false
@@ -269,11 +372,20 @@ final class ResponsesStreamState {
     !toolCalls.isEmpty
   }
 
-  init(model: String, namespaceMap: [String: String], onTextChunk: ((String) -> Void)? = nil, onTextDone: ((String) -> Void)? = nil) {
+  init(
+    model: String,
+    namespaceMap: [String: String],
+    onTextChunk: ((String) -> Void)? = nil,
+    onTextDone: ((String) -> Void)? = nil,
+    providerID: String? = nil,
+    extraContentStore: ToolCallExtraContentStore = .shared
+  ) {
     self.model = model
     self.namespaceMap = namespaceMap
     self.onTextChunk = onTextChunk
     self.onTextDone = onTextDone
+    self.providerID = providerID
+    self.extraContentStore = extraContentStore
   }
 
   func start(write: ([String: Any]) -> Void) {
@@ -353,6 +465,8 @@ final class ResponsesStreamState {
 
   /// Drop this attempt's buffered tool calls and flags. Keeps the response id,
   /// sequence, and any text already forwarded so a retry does not restart the turn.
+  /// `extra_content` is stored only when a call is emitted, so a discarded
+  /// attempt does not publish a signature Codex never saw.
   func discardAttempt() {
     toolCalls = [:]
     reasoningText = ""
@@ -469,6 +583,11 @@ final class ResponsesStreamState {
         if let name = fn["name"] as? String { state["name"] = (state["name"] as? String ?? "") + name }
         if let args = fn["arguments"] as? String { state["arguments"] = (state["arguments"] as? String ?? "") + args }
       }
+      // Later argument fragments omit the object. Keep the first copy, and
+      // replace it only when a later delta for this index sends one.
+      if let extra = call["extra_content"] as? [String: Any], !extra.isEmpty {
+        state["extra_content"] = extra
+      }
       toolCalls[index] = state
     }
   }
@@ -491,6 +610,9 @@ final class ResponsesStreamState {
         "arguments": args
       ]
       if let namespace { item["namespace"] = namespace }
+      if let providerID, let extra = state["extra_content"] as? [String: Any] {
+        extraContentStore.remember(providerID: providerID, callID: rawId, extraContent: extra)
+      }
       var added = item
       added["status"] = "in_progress"
       added["arguments"] = ""
