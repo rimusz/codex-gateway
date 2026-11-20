@@ -25,9 +25,13 @@ struct HTTPRequest {
   }
 }
 
-final class HTTPResponse {
+final class HTTPResponse: @unchecked Sendable {
   private let connection: NWConnection
   private var sent = false
+  private var streaming = false
+  private var outbound: [Data] = []
+  private var sending = false
+  private var finishAfterFlush = false
   private let queue: DispatchQueue
 
   init(connection: NWConnection, queue: DispatchQueue) {
@@ -39,19 +43,93 @@ final class HTTPResponse {
     queue.async {
       guard !self.sent else { return }
       self.sent = true
-      var headerLines = ["HTTP/1.1 \(status) \(HTTPResponse.statusText(status))"]
       var allHeaders = headers
       if allHeaders["Content-Length"] == nil && !body.isEmpty {
         allHeaders["Content-Length"] = "\(body.count)"
       }
       if allHeaders["Connection"] == nil { allHeaders["Connection"] = "close" }
-      for (k, v) in allHeaders { headerLines.append("\(k): \(v)") }
-      var data = Data((headerLines.joined(separator: "\r\n") + "\r\n\r\n").utf8)
+      var data = HTTPResponse.headerBlock(status: status, headers: allHeaders)
       data.append(body)
-      self.connection.send(content: data, completion: .contentProcessed { _ in
-        self.connection.cancel()
-      })
+      self.enqueueOnQueue(data, end: true)
     }
+  }
+
+  /// HTTP 200 head for a chunked SSE body. Further bytes go out through `writeChunk`.
+  func startStream(status: Int = 200, headers: [String: String] = [:]) {
+    queue.async {
+      guard !self.sent else { return }
+      self.sent = true
+      self.streaming = true
+      var allHeaders = headers
+      allHeaders.removeValue(forKey: "Content-Length")
+      allHeaders["Transfer-Encoding"] = "chunked"
+      allHeaders["Connection"] = "close"
+      self.enqueueOnQueue(HTTPResponse.headerBlock(status: status, headers: allHeaders), end: false)
+    }
+  }
+
+  func writeChunk(_ body: Data) {
+    guard !body.isEmpty else { return }
+    let frame = HTTPResponse.chunkFrame(body)
+    queue.async {
+      guard self.streaming else { return }
+      self.enqueueOnQueue(frame, end: false)
+    }
+  }
+
+  func endStream() {
+    queue.async {
+      guard self.streaming else { return }
+      self.streaming = false
+      self.enqueueOnQueue(Data("0\r\n\r\n".utf8), end: true)
+    }
+  }
+
+  static func chunkFrame(_ data: Data) -> Data {
+    var frame = Data(String(data.count, radix: 16).utf8)
+    frame.append(Data("\r\n".utf8))
+    frame.append(data)
+    frame.append(Data("\r\n".utf8))
+    return frame
+  }
+
+  private static func headerBlock(status: Int, headers: [String: String]) -> Data {
+    var headerLines = ["HTTP/1.1 \(status) \(statusText(status))"]
+    for (key, value) in headers { headerLines.append("\(key): \(value)") }
+    return Data((headerLines.joined(separator: "\r\n") + "\r\n\r\n").utf8)
+  }
+
+  /// Caller is already on `queue`. Sends are chained because NWConnection allows one outstanding send.
+  private func enqueueOnQueue(_ data: Data, end: Bool) {
+    if !data.isEmpty { outbound.append(data) }
+    if end { finishAfterFlush = true }
+    pump()
+  }
+
+  private func pump() {
+    guard !sending else { return }
+    if outbound.isEmpty {
+      if finishAfterFlush {
+        finishAfterFlush = false
+        connection.cancel()
+      }
+      return
+    }
+    let data = outbound.removeFirst()
+    sending = true
+    // Retain self until this send finishes and pump() runs again. The request
+    // handler returns as soon as endStream() is queued; those queued blocks are
+    // the only other retains. A weak completion drops them when the last block
+    // returns, deallocating HTTPResponse while later frames (the function_call
+    // item, response.completed, and the terminating 0-chunk) are still in
+    // `outbound`, and connection.cancel() never runs. The retain ends once
+    // outbound is empty and finishAfterFlush cancels the connection.
+    connection.send(content: data, completion: .contentProcessed { _ in
+      self.queue.async {
+        self.sending = false
+        self.pump()
+      }
+    })
   }
 
   func upgradeWebSocket(key: String, onSession: @escaping (WebSocketSession) -> Void) {

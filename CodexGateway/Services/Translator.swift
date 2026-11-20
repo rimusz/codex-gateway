@@ -243,6 +243,31 @@ final class ResponsesStreamState {
   private var toolCalls: [Int: [String: Any]] = [:]
   var onTextChunk: ((String) -> Void)?
   var onTextDone: ((String) -> Void)?
+  private var sawTerminator = false
+  private var sawDataLine = false
+  private var sawNonSSEBody = false
+  private var sawMalformedData = false
+  private var sawTruncatedBody = false
+  private var finishedBeforeError = false
+  private var appliedRawBody = false
+  private var rawBody = ""
+  private static let rawBodyCap = 8 * 1024 * 1024
+
+  /// Any delta already written to the client, including whitespace. A retry must
+  /// not append a second copy of text the client has seen.
+  var hasForwardedText: Bool {
+    !messageText.isEmpty
+  }
+
+  /// Provider error text from an SSE or JSON `error` chunk, when this attempt
+  /// did not already finish. Not a drop: the caller must not retry it.
+  private(set) var providerErrorMessage: String?
+
+  /// Any buffered slot counts, including a fragment that has not received its
+  /// name yet. A clean end would otherwise drop that fragment.
+  var hasPendingToolCalls: Bool {
+    !toolCalls.isEmpty
+  }
 
   init(model: String, namespaceMap: [String: String], onTextChunk: ((String) -> Void)? = nil, onTextDone: ((String) -> Void)? = nil) {
     self.model = model
@@ -266,6 +291,136 @@ final class ResponsesStreamState {
     reasoningText += Translator.chatText(message["reasoning_content"])
     ingestToolCalls(delta["tool_calls"] as? [[String: Any]] ?? [])
     ingestToolCalls(message["tool_calls"] as? [[String: Any]] ?? [])
+    let choices = chunk["choices"] as? [[String: Any]] ?? []
+    for candidate in choices {
+      if let reason = candidate["finish_reason"] as? String, !reason.isEmpty {
+        sawTerminator = true
+        break
+      }
+    }
+  }
+
+  /// One upstream line. `data:` with or without a space, `[DONE]`, and a JSON
+  /// error chunk are recognized. Other lines before the first `data:` line are
+  /// kept so a non-SSE JSON body can still be translated.
+  func ingestUpstreamLine(_ line: String, write: ([String: Any]) -> Void) {
+    let trimmed = line.trimmingCharacters(in: .whitespacesAndNewlines)
+    guard !trimmed.isEmpty else { return }
+    guard trimmed.hasPrefix("data:") else {
+      guard !sawDataLine else { return }
+      let addition = (rawBody.isEmpty ? "" : "\n") + trimmed
+      guard rawBody.utf8.count + addition.utf8.count <= Self.rawBodyCap else { return }
+      rawBody += addition
+      return
+    }
+    sawDataLine = true
+    var payload = String(trimmed.dropFirst("data:".count))
+    if payload.first == " " { payload.removeFirst() }
+    if payload == "[DONE]" {
+      sawTerminator = true
+      return
+    }
+    guard let data = payload.data(using: .utf8),
+          let chunk = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+      sawMalformedData = true
+      return
+    }
+    if let error = chunk["error"] {
+      noteProviderError(error, fallback: String(payload.prefix(400)))
+      return
+    }
+    writeChatDelta(chunk, write: write)
+  }
+
+  /// Emit the assembled response when this attempt is finished.
+  /// A pending tool call without `finish_reason`, `[DONE]`, or a full JSON body
+  /// stays buffered so the caller can retry or fail without a partial `function_call`.
+  @discardableResult
+  func finishIfComplete(upstreamFailed: Bool, write: ([String: Any]) -> Void) -> Bool {
+    applyRawBodyIfNeeded(write: write)
+    // A finish signal wins over a later error chunk: the call was already complete.
+    let finished = (sawTerminator || sawNonSSEBody) && !hasNamelessToolCall
+    if finished, providerErrorMessage == nil || finishedBeforeError {
+      finish(write: write)
+      return true
+    }
+    // Provider errors are terminal. Truncated JSON is a drop the caller may retry.
+    if providerErrorMessage != nil || sawMalformedData || sawTruncatedBody { return false }
+    guard !upstreamFailed, !hasPendingToolCalls else { return false }
+    finish(write: write)
+    return true
+  }
+
+  /// Drop this attempt's buffered tool calls and flags. Keeps the response id,
+  /// sequence, and any text already forwarded so a retry does not restart the turn.
+  func discardAttempt() {
+    toolCalls = [:]
+    reasoningText = ""
+    sawTerminator = false
+    sawDataLine = false
+    sawNonSSEBody = false
+    sawMalformedData = false
+    sawTruncatedBody = false
+    finishedBeforeError = false
+    appliedRawBody = false
+    rawBody = ""
+    providerErrorMessage = nil
+  }
+
+  func fail(code: String, message: String, write: ([String: Any]) -> Void) {
+    var resp = response("failed")
+    resp["error"] = [
+      "type": "upstream_error",
+      "code": code,
+      "message": message
+    ] as [String: Any]
+    write(wrap(["type": "response.failed", "response": resp]))
+  }
+
+  private func applyRawBodyIfNeeded(write: ([String: Any]) -> Void) {
+    guard !appliedRawBody, !sawDataLine, !rawBody.isEmpty else { return }
+    appliedRawBody = true
+    guard let data = rawBody.data(using: .utf8),
+          let payload = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+      if rawBody.contains("{") || rawBody.contains("[") { sawTruncatedBody = true }
+      return
+    }
+    if let error = payload["error"] {
+      noteProviderError(error, fallback: String(rawBody.prefix(400)))
+      return
+    }
+    guard payload["choices"] != nil else {
+      if rawBody.contains("{") || rawBody.contains("[") { sawTruncatedBody = true }
+      return
+    }
+    sawNonSSEBody = true
+    writeChatDelta(payload, write: write)
+  }
+
+  private var hasNamelessToolCall: Bool {
+    toolCalls.values.contains { (($0["name"] as? String) ?? "").isEmpty }
+  }
+
+  private func noteProviderError(_ error: Any, fallback: String) {
+    if sawTerminator || sawNonSSEBody { finishedBeforeError = true }
+    let message = Self.providerErrorText(error) ?? fallback
+    providerErrorMessage = message
+    GatewayLog.error("Upstream chat stream error chunk: \(String(message.prefix(200)))")
+  }
+
+  private static func providerErrorText(_ error: Any) -> String? {
+    if let text = error as? String {
+      let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+      return trimmed.isEmpty ? nil : trimmed
+    }
+    guard let object = error as? [String: Any] else { return nil }
+    if let message = object["message"] as? String {
+      let trimmed = message.trimmingCharacters(in: .whitespacesAndNewlines)
+      if !trimmed.isEmpty { return trimmed }
+    }
+    guard let data = try? JSONSerialization.data(withJSONObject: object),
+          let text = String(data: data, encoding: .utf8) else { return nil }
+    return String(text.prefix(400))
   }
 
   func finish(write: ([String: Any]) -> Void, usage: [String: Any]? = nil) {
