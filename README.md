@@ -2,7 +2,7 @@
 
 **Use any OpenAI-compatible model in Codex Desktop and Codex CLI — from a macOS menu bar app.**
 
-Codex Desktop and the Codex CLI normally talk only to OpenAI's own models. CodexGateway sits quietly in your menu bar and runs a tiny local gateway that lets both route to **third-party providers** (Cursor via a local bridge, Anthropic Console API key or Claude Code login, xAI API key, Grok OAuth via the official Grok CLI, DeepSeek, OpenRouter, Z.ai, Kimi, Qwen, MiniMax, Cline Pass, …) or **local models** (Ollama). You keep those providers and models in a native **Settings** window. **Update Gateway Config** writes only your custom models into Codex's picker and restarts the Codex app and CLI daemon. **Reset Gateway Config** puts Codex's own models back in the picker and takes the custom models out. The picker shows one of those lists at a time: ChatGPT rejects native Codex model ids when the request comes through the gateway. A custom entry whose upstream id matches a native slug still works when you select that entry (for example `cursor/gpt-5.5` goes to Cursor). Desktop and CLI share the choice through `~/.codex/config.toml`.
+Codex Desktop and the Codex CLI normally talk only to OpenAI's own models. CodexGateway sits quietly in your menu bar and runs a tiny local gateway that lets both route to **third-party providers** (Cursor via a local bridge, Anthropic Console API key or Claude Code login, xAI API key, Grok OAuth via the official Grok CLI, DeepSeek, Google Gemini, OpenRouter, Z.ai, Kimi, Qwen, MiniMax, Cline Pass, …) or **local models** (Ollama). You keep those providers and models in a native **Settings** window. **Update Gateway Config** writes only your custom models into Codex's picker and restarts the Codex app and CLI daemon. **Reset Gateway Config** puts Codex's own models back in the picker and takes the custom models out. The picker shows one of those lists at a time: ChatGPT rejects native Codex model ids when the request comes through the gateway. A custom entry whose upstream id matches a native slug still works when you select that entry (for example `cursor/gpt-5.5` goes to Cursor). Desktop and CLI share the choice through `~/.codex/config.toml`.
 
 ![CodexGateway Settings and menu bar](docs/screenshots/settings-and-menu.png)
 
@@ -88,7 +88,7 @@ Existing installs upgrade smoothly:
 7. Restart Codex when prompted (**Restart Codex**, ⌘R) so Desktop/CLI reload config.
 8. Pick a model in **Codex Desktop** (model picker) or the **Codex CLI** — your custom models are available in both.
 
-If the gateway, Codex config, Node.js, Cursor, or Grok OAuth looks off, open **Doctor…** (⌘D) from the menu bar or the Settings toolbar.
+If the gateway, Codex config, Node.js, Cursor, Grok OAuth, or Claude Code login looks off, open **Doctor…** (⌘D) from the menu bar or the Settings toolbar.
 
 > **Custom models require you to be signed in to Codex** — a **free account is enough**. Signed out, Codex only shows its built-in fallback models and labels any active custom model as "Custom". (Native GPT/ChatGPT models still need an OpenAI/ChatGPT account.) When you have custom models but Codex is signed out, Settings shows a reminder.
 
@@ -100,7 +100,7 @@ Everything lives in the **Settings** window — no browser needed. **Add Provide
 
 ### Providers
 
-Install a built-in preset from **Add Provider** (**Anthropic (Claude), Anthropic (Claude Code), Z.ai, Kimi, Qwen, Xiaomi MiMo, Cline Pass, MiniMax, DeepSeek, xAI Grok (API), xAI Grok (OAuth), OpenRouter, Ollama**) or **Add custom provider**. You're prompted for an API key when the provider needs one. Provider rows show a compact model count and status.
+Install a built-in preset from **Add Provider** (**Anthropic (Claude), Anthropic (Claude Code), Cline Pass, Cursor, DeepSeek, Google Gemini, Kimi (Moonshot), MiniMax, Ollama (local), OpenRouter, Qwen (DashScope), xAI Grok (API), xAI Grok (OAuth), Xiaomi MiMo, Z.ai (GLM)**) or **Add custom provider**. You're prompted for an API key when the provider needs one. Provider rows show a compact model count and status.
 
 **Anthropic (Claude) vs Anthropic (Claude Code):** keep them separate — two auth modes, one Claude/Anthropic family. Both talk to Anthropic's OpenAI-compatible API at `https://api.anthropic.com/v1` (`GET {base}/models` → host path `/v1/models`, not `/v1/v1/models`; chat via `/chat/completions`; no native Messages-API translator).
 
@@ -111,16 +111,20 @@ Both presets can be installed side by side. Model names are labeled **(API)** vs
 
 **xAI Grok (API) vs xAI Grok (OAuth):** keep them separate. **xAI Grok (API)** uses an API key against `api.x.ai` and fetches models from that API. **xAI Grok (OAuth)** uses the official Grok CLI session (`npm i -g @xai-official/grok` then `grok login`), forwards through xAI’s CLI chat proxy, and fetches the model list from the CLI OAuth catalog (`/models-v2`) — no key in `providers.json`. Both can be installed side by side.
 
+**Google Gemini:** create an API key in [Google AI Studio](https://aistudio.google.com/apikey). In Settings, open **Add Provider**, install **Google Gemini**, and paste the key. On the provider row, click **Fetch models**, then **Add model**. The preset uses Google's OpenAI-compatible endpoint `https://generativelanguage.googleapis.com/v1beta/openai` (Bearer auth; `/chat/completions` and `/models`). Listed ids sometimes arrive as `models/gemini-…`. CodexGateway strips that prefix, so a catalog slug looks like `gemini/gemini-2.5-flash` with upstream id `gemini-2.5-flash`.
+
 You can add, edit, and delete providers. A provider can't be removed while it still has installed models — delete its models first.
 
 ### Models
 
-Click **Add model** to fetch the provider's model list and choose which to install. Models already in the catalog are left out of that list. Cline Pass uses Cline's public recommended-models feed (no API key required for listing).
+Click **Add model** to fetch the provider's model list and choose which to install (or click **Fetch models** on the provider row first). Models already in the catalog are left out of that list. Cline Pass uses Cline's public recommended-models feed (no API key required for listing). Google Gemini uses `GET {base}/models` on the OpenAI-compatible base above; a `models/` prefix on those ids is removed before they are saved.
 
 Display names are auto-formatted into friendly, provider-prefixed names — Cline style:
 
 | Provider model ID | Shown in Codex as |
 |---|---|
+| `gemini-2.5-flash` (Google Gemini) | **Gemini 2.5 Flash** |
+| `gemini-3.8-flash` (Google Gemini) | **Gemini 3.8 Flash** |
 | `grok-4.5` (xAI API) | **xAI Grok 4.5 (API)** |
 | `grok-4.5` (xAI OAuth) | **xAI Grok 4.5 (OAuth)** |
 | `deepseek/deepseek-chat-v3-0324` (OpenRouter) | **OpenRouter DeepSeek Chat V3 0324** |
@@ -184,7 +188,7 @@ Unsigned CI releases are published for manual install only.
 
 ## Using CodexGateway with [Zero](https://zero.gitlawb.com)
 
-[Zero](https://zero.gitlawb.com) is a terminal coding agent that supports any **OpenAI-compatible** API. You can point it at the CodexGateway gateway on the same Mac and use the models you configured in CodexGateway Settings — Anthropic/Claude, Cline Pass, Ollama, DeepSeek, xAI via your keys, and so on.
+[Zero](https://zero.gitlawb.com) is a terminal coding agent that supports any **OpenAI-compatible** API. You can point it at the CodexGateway gateway on the same Mac and use the models you configured in CodexGateway Settings — Anthropic/Claude, Cline Pass, Ollama, DeepSeek, Google Gemini, xAI via your keys, and so on.
 
 CodexGateway must be **running** (menu bar icon present). The gateway is local-only:
 

@@ -367,6 +367,15 @@ final class ModelCatalogTests: XCTestCase {
             ModelCatalog.prettyDisplayName(from: "claude-sonnet-5", providerID: "claude-code"),
             "Anthropic Claude Sonnet 5 (OAuth)"
         )
+        XCTAssertEqual(ModelCatalog.providerBrand(for: "gemini"), "Gemini")
+        XCTAssertEqual(
+            ModelCatalog.prettyDisplayName(from: "gemini-3.8-flash", providerID: "gemini"),
+            "Gemini 3.8 Flash"
+        )
+        XCTAssertEqual(
+            ModelCatalog.prettyDisplayName(from: "gemini-2.5-flash", providerID: "gemini"),
+            "Gemini 2.5 Flash"
+        )
     }
 
     func testSortedProvidersAndModelsAreAlphabetical() {

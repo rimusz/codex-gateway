@@ -41,7 +41,23 @@ enum ProviderModelFetcher {
     return URL(string: normalized + "/models")
   }
 
-  static func parse(_ data: Data) -> [FetchedModel]? {
+  /// Google's OpenAI-compatible `/models` list uses Generative Language resource
+  /// names (`models/gemini-2.5-flash`). Chat completions expect the bare id.
+  static func stripsModelsResourcePrefix(baseURL: String) -> Bool {
+    let trimmed = baseURL.trimmingCharacters(in: .whitespacesAndNewlines)
+    guard let host = URL(string: trimmed)?.host?.lowercased() else { return false }
+    return host == "generativelanguage.googleapis.com"
+  }
+
+  static func strippingModelsResourcePrefix(from id: String) -> String {
+    let prefix = "models/"
+    guard id.lowercased().hasPrefix(prefix) else { return id }
+    let stripped = String(id.dropFirst(prefix.count))
+      .trimmingCharacters(in: .whitespacesAndNewlines)
+    return stripped.isEmpty ? id : stripped
+  }
+
+  static func parse(_ data: Data, stripModelsPrefix: Bool = false) -> [FetchedModel]? {
     guard let object = try? JSONSerialization.jsonObject(with: data) else { return nil }
     let rawList: [Any]
     // IDs to drop regardless of provider (e.g. Cursor's "default"/Auto meta-selector).
@@ -64,8 +80,12 @@ enum ProviderModelFetcher {
     for item in rawList {
       guard let entry = item as? [String: Any] else { continue }
       let identifier = (entry["id"] as? String) ?? (entry["model"] as? String)
-      guard let id = identifier?.trimmingCharacters(in: .whitespacesAndNewlines), !id.isEmpty else {
+      guard var id = identifier?.trimmingCharacters(in: .whitespacesAndNewlines), !id.isEmpty else {
         continue
+      }
+      if stripModelsPrefix {
+        id = strippingModelsResourcePrefix(from: id)
+        guard !id.isEmpty else { continue }
       }
       guard !skipIDs.contains(id.lowercased()) else { continue }
       guard seen.insert(id).inserted else { continue }
@@ -116,7 +136,10 @@ enum ProviderModelFetcher {
       guard (200..<300).contains(http.statusCode) else { throw FetchError.http(http.statusCode) }
     }
 
-    guard let models = parse(data) else { throw FetchError.decode }
+    guard let models = parse(
+      data,
+      stripModelsPrefix: stripsModelsResourcePrefix(baseURL: baseURL)
+    ) else { throw FetchError.decode }
     guard !models.isEmpty else { throw FetchError.empty }
     return models
   }

@@ -140,6 +140,40 @@ final class ProviderPresetsTests: XCTestCase {
         XCTAssertEqual(preset.setupCaption, "Uses Claude Code login · no key stored")
     }
 
+    func testGeminiPresetDefinition() {
+        let preset = ProviderPreset.gemini
+        XCTAssertEqual(preset.displayName, "Google Gemini")
+        XCTAssertEqual(preset.providerID, "gemini")
+        XCTAssertEqual(preset.baseURL, "https://generativelanguage.googleapis.com/v1beta/openai")
+        XCTAssertEqual(preset.authKind, .apiKey)
+        XCTAssertTrue(preset.requiresAPIKeyPrompt)
+        XCTAssertEqual(preset.defaultAPIKey, "")
+        XCTAssertTrue(preset.supportsModelListingFetch)
+        XCTAssertTrue(preset.canFetchModels)
+        XCTAssertFalse(preset.supportsLiveCatalogRefresh)
+        XCTAssertFalse(preset.supportsGrokOAuthModelCatalog)
+        XCTAssertFalse(preset.seedsSuggestedModelOnInstall)
+        XCTAssertFalse(preset.usesCatalogModels)
+        XCTAssertEqual(preset.suggestedModel, "gemini-3.8-flash")
+        XCTAssertEqual(preset.apiKeyPageURL?.absoluteString, "https://aistudio.google.com/apikey")
+        XCTAssertEqual(preset.setupCaption, "API key from aistudio.google.com/apikey")
+        let config = preset.providerConfig(apiKey: "test-gemini-key")
+        XCTAssertEqual(config.name, "gemini")
+        XCTAssertEqual(config.display_name, "Google Gemini")
+        XCTAssertEqual(config.base_url, preset.baseURL)
+        XCTAssertEqual(config.api_key, "test-gemini-key")
+        XCTAssertEqual(config.auth_kind, "api_key")
+        XCTAssertEqual(config.resolvedAuthKind, .apiKey)
+        let models = preset.catalogModels()
+        XCTAssertEqual(models.first?.slug, "gemini/gemini-3.8-flash")
+        XCTAssertEqual(models.first?.model, "gemini-3.8-flash")
+        XCTAssertEqual(models.first?.display_name, "Gemini 3.8 Flash")
+        XCTAssertEqual(
+            ProviderModelFetcher.modelsURL(for: preset.baseURL)?.absoluteString,
+            "https://generativelanguage.googleapis.com/v1beta/openai/models"
+        )
+    }
+
     func testOpenRouterPresetDefinition() {
         let preset = ProviderPreset.openrouter
         XCTAssertEqual(preset.displayName, "OpenRouter")
@@ -171,6 +205,7 @@ final class ProviderPresetsTests: XCTestCase {
         XCTAssertTrue(ids.contains("anthropic"))
         XCTAssertTrue(ids.contains("claudeCode"))
         XCTAssertTrue(ids.contains("deepseek"))
+        XCTAssertTrue(ids.contains("gemini"))
     }
 
     func testFeaturedMenuIsAlphabeticalByDisplayName() {
@@ -178,6 +213,9 @@ final class ProviderPresetsTests: XCTestCase {
         XCTAssertEqual(names, names.sorted {
             $0.localizedCaseInsensitiveCompare($1) == .orderedAscending
         })
+        XCTAssertTrue(names.contains("Google Gemini"))
+        XCTAssertTrue(names.firstIndex(of: "DeepSeek")! < names.firstIndex(of: "Google Gemini")!)
+        XCTAssertTrue(names.firstIndex(of: "Google Gemini")! < names.firstIndex(of: "Kimi (Moonshot)")!)
         XCTAssertTrue(names.contains("Anthropic (Claude)"))
         XCTAssertTrue(names.contains("Anthropic (Claude Code)"))
         XCTAssertTrue(names.firstIndex(of: "Anthropic (Claude)")! < names.firstIndex(of: "Cline Pass")!)
@@ -348,6 +386,7 @@ final class ProviderPresetsTests: XCTestCase {
         XCTAssertEqual(ProviderPreset.matching(providerID: "clinepass"), .clinePass)
         XCTAssertEqual(ProviderPreset.matching(providerID: "anthropic"), .anthropic)
         XCTAssertEqual(ProviderPreset.matching(providerID: "claude-code"), .claudeCode)
+        XCTAssertEqual(ProviderPreset.matching(providerID: "gemini"), .gemini)
         XCTAssertNil(ProviderPreset.matching(providerID: "custom"))
     }
 }

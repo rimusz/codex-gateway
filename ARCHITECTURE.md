@@ -79,7 +79,7 @@ codex-gateway/                    # GitHub repo (`rimusz/codex-gateway`; legacy 
 │   │   ├── LoopbackHTTPServer.swift
 │   │   ├── Translator.swift      # Responses ↔ Chat translation
 │   │   ├── ModelCatalog.swift    # custom_model_catalog.json + providers
-│   │   ├── ProviderPresets.swift # Built-in presets (incl. Anthropic Console + Claude Code, Cursor bridge, xAI API + Grok OAuth)
+│   │   ├── ProviderPresets.swift # Built-in presets (incl. Anthropic Console + Claude Code, Cursor bridge, xAI API + Grok OAuth, Google Gemini)
 │   │   ├── CustomProviderExample.swift # Spark DeepSeek fill-in for custom provider editor
 │   │   ├── GrokOAuthSession.swift # ~/.grok/auth.json + `grok models` refresh
 │   │   ├── GrokOAuthClient.swift  # CLI chat proxy (Responses) forwarder
@@ -89,7 +89,7 @@ codex-gateway/                    # GitHub repo (`rimusz/codex-gateway`; legacy 
 │   │   ├── CursorBridgeKeychain.swift # Application Support secret for CURSOR_API_KEY
 │   │   ├── DoctorReport.swift    # Pure Doctor check mapping (gateway, Codex, Node, Cursor, Grok, Claude Code)
 │   │   ├── DoctorCollector.swift # Live probes for DoctorInputs
-│   │   ├── ProviderModelFetcher.swift # OpenAI /models + Anthropic GET {base}/models (Console + Claude Code) + Cline Pass recommended-models
+│   │   ├── ProviderModelFetcher.swift # OpenAI /models + Anthropic GET {base}/models (Console + Claude Code) + Cline Pass recommended-models; Gemini list strips a leading models/ id prefix
 │   │   ├── FetchedModelsStore.swift   # ~/.codexgateway/fetched_models.json cache
 │   │   ├── ZstdBridge.swift         # zstd decompress for Codex request bodies
 │   │   ├── UpdateChecker.swift    # GitHub release version check
@@ -231,7 +231,7 @@ Release assets: `CodexGateway-{tag}.app.zip`, `CodexGateway-{tag}-macOS.dmg` (no
 | Add gateway route | `GatewayServer.swift` |
 | Change translation logic | `Translator.swift` |
 | Model catalog / providers | `ModelCatalog.swift`, `ProviderPresets.swift`, `ProviderModelFetcher.swift`, `Paths.swift`. `findModel(requested:in:)` is exact slug, then unique unprefixed upstream/`provider/id` suffix; `requestedModelID(from:)` reads string, `{id,slug,model}`, or `model_id`. Native slugs (built-in GPT-5 ids plus `codex debug models --bundled`, cached, 5s timeout) are not written into the custom picker and are not aliased onto a custom model. `codexPickerModels` exports custom models only. Settings **Add model** uses `ModelCatalog.excludingInstalled` so a model already saved for that provider (same slug or same upstream id) is omitted from the picker and from the row's available count. |
-| Install provider preset | `PresetInstaller`, Settings window (provider only by default; **xAI Grok (OAuth)** also seeds a suggested model; **Cursor** validates API key → `CursorBridgeKeychain` + enables `CursorBridgeRuntime` on port **18788**). **Anthropic (Claude)** uses `auth_kind: anthropic` (Console key) and fetches `GET {base_url}/models` (`https://api.anthropic.com/v1` + `/models` → host path `/v1/models`; OpenAI `data[]`, plus `display_name`). **Anthropic (Claude Code)** is a second preset (`auth_kind: claude_code`) on the same OpenAI-compat base; Settings **Use Claude Code login** reads the local session at runtime (no token field). Cline Pass listing: `ProviderModelFetcher.fetchClinePassRecommended` → `https://api.cline.bot/api/v1/ai/cline/recommended-models` (no API key) |
+| Install provider preset | `PresetInstaller`, Settings window (provider only by default; **xAI Grok (OAuth)** also seeds a suggested model; **Cursor** validates API key → `CursorBridgeKeychain` + enables `CursorBridgeRuntime` on port **18788**). **Anthropic (Claude)** uses `auth_kind: anthropic` (Console key) and fetches `GET {base_url}/models` (`https://api.anthropic.com/v1` + `/models` → host path `/v1/models`; OpenAI `data[]`, plus `display_name`). **Anthropic (Claude Code)** is a second preset (`auth_kind: claude_code`) on the same OpenAI-compat base; Settings **Use Claude Code login** reads the local session at runtime (no token field). **Google Gemini** (`auth_kind: api_key`) uses `https://generativelanguage.googleapis.com/v1beta/openai`; `GET {base}/models` may return ids prefixed `models/`, and `ProviderModelFetcher` strips that prefix before catalog slugs (`gemini/gemini-2.5-flash`). Cline Pass listing: `ProviderModelFetcher.fetchClinePassRecommended` → `https://api.cline.bot/api/v1/ai/cline/recommended-models` (no API key) |
 | Custom provider Spark example | `CustomProviderExample` + Settings **Add Provider** → Add custom provider → “Fill Spark example” (`spark-deepseek` → `http://spark:8001/v1`) |
 | xAI Grok (OAuth) provider | `GrokOAuthSession` (`~/.grok/auth.json`, `grok models` refresh), `GrokOAuthClient` → `cli-chat-proxy.grok.com/v1/responses`; model list via `ProviderModelFetcher.fetchGrokOAuthModels` → `…/models-v2`. `GatewayServer` branches on `ProviderConfig.usesGrokOAuth`. Parallel to **xAI Grok (API)** preset. |
 | Anthropic Claude Code login | `ClaudeCodeSession` (env `CLAUDE_CODE_OAUTH_TOKEN`, `~/.claude/.credentials.json`, `~/.claude.json`, macOS Keychain `Claude Code-credentials`). Walks sources in order and stops at the first usable `sk-ant-oat…` token — a stale credentials file must not hide a refreshed Keychain login, and a usable env/file token must not spawn `security`. Status hints come from the highest-priority unusable source. `ProviderAuth` applies Bearer + `anthropic-version` + `anthropic-beta: oauth-2025-04-20` (no `x-api-key`) to the same `https://api.anthropic.com/v1` OpenAI-compat routes. Parallel to **Anthropic (Claude)** Console-key preset. Settings / Setup / Doctor run `ClaudeCodeSession.status()` off the UI thread (`Task.detached`) and publish back on `MainActor`; `installPreset(.claudeCode)` does one sync `status()` for the install toast. Keychain probe is `#if os(macOS)` — Linux/CI must use fixtures, not a faked local login. |
@@ -260,7 +260,7 @@ Unit tests in `Tests/CodexGatewayTests/`:
 - `CodexConfigTests` — managed block stripping, ChatGPT `account_id` parse
 - `ModelCatalogTests` — provider/model API parsing, `requestedModelID`, unique unprefixed `findModel` (and native-slug protection)
 - `LoopbackHTTPServerTests` — also `GatewayServer` dummy/`passthroughAuthorization` / ChatGPT backend helpers
-- `ProviderPresetsTests` — preset definitions (incl. Anthropic Console + Claude Code), Grok OAuth install seed, Anthropic / Claude Code auth headers
+- `ProviderPresetsTests` — preset definitions (incl. Anthropic Console + Claude Code, Google Gemini), Grok OAuth install seed, Anthropic / Claude Code auth headers
 - `ClaudeCodeSessionTests` — credentials fixture parse/probe/status (fake `sk-ant-oat-*` only)
 - `CursorBridgeTests` — managed bridge port 18788, catalog filter, Node TLS, runtime helpers
 - `GrokOAuthSessionTests` — auth.json probe/parse/refresh stubs

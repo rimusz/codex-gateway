@@ -184,6 +184,10 @@ struct SetupView: View {
         Text("Anthropic Console API key. For Claude Code login, choose Anthropic (Claude Code) instead — do not paste an OAuth token here.")
           .font(.caption)
           .foregroundStyle(.secondary)
+      } else if let keyPage = preset.apiKeyPageURL {
+        Text("Get an API key at \(keyPage.absoluteString). Your key is stored locally in ~/.codexgateway/providers.json.")
+          .font(.caption)
+          .foregroundStyle(.secondary)
       } else {
         Text("Your key is stored locally in ~/.codexgateway/providers.json.")
           .font(.caption)
@@ -418,6 +422,8 @@ extension ProviderPreset {
       return "Claude API key · OpenAI-compat"
     case .claudeCode:
       return "Uses Claude Code login · no key stored"
+    case .gemini:
+      return "API key from aistudio.google.com/apikey"
     default:
       return "OpenAI-compatible API key"
     }
