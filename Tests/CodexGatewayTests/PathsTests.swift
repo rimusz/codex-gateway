@@ -21,6 +21,7 @@ final class PathsTests: XCTestCase {
     XCTAssertTrue(Paths.modelCatalog.hasSuffix("/.codexgateway/custom_model_catalog.json"))
     XCTAssertTrue(Paths.providersConfig.hasSuffix("/.codexgateway/providers.json"))
     XCTAssertTrue(Paths.fetchedModelsCache.hasSuffix("/.codexgateway/fetched_models.json"))
+    XCTAssertTrue(Paths.toolCallExtraContentCache.hasSuffix("/.codexgateway/tool_call_extra_content.json"))
   }
 
   func testCodexPathsPointAtCodexHome() {

@@ -113,7 +113,7 @@ Both presets can be installed side by side. Model names are labeled **(API)** vs
 
 **xAI Grok (API) vs xAI Grok (OAuth):** keep them separate. **xAI Grok (API)** uses an API key against `api.x.ai` and fetches models from that API. **xAI Grok (OAuth)** uses the official Grok CLI session (`npm i -g @xai-official/grok` then `grok login`), forwards through xAI’s CLI chat proxy, and fetches the model list from the CLI OAuth catalog (`/models-v2`) — no key in `providers.json`. Both can be installed side by side.
 
-**Google Gemini:** create an API key in [Google AI Studio](https://aistudio.google.com/apikey). In Settings, open **Add Provider**, install **Google Gemini**, and paste the key. On the provider row, click **Fetch models**, then **Add model**. The preset uses Google's OpenAI-compatible endpoint `https://generativelanguage.googleapis.com/v1beta/openai` (Bearer auth; `/chat/completions` and `/models`). Listed ids sometimes arrive as `models/gemini-…`. CodexGateway strips that prefix, so a catalog slug looks like `gemini/gemini-2.5-flash` with upstream id `gemini-2.5-flash`. Gemini 3 and 4 tool calls include a thought signature. CodexGateway keeps it and sends that same value back on the next turn to Google. Other providers are unchanged. Quitting the app clears those signatures.
+**Google Gemini:** create an API key in [Google AI Studio](https://aistudio.google.com/apikey). In Settings, open **Add Provider**, install **Google Gemini**, and paste the key. On the provider row, click **Fetch models**, then **Add model**. The preset uses Google's OpenAI-compatible endpoint `https://generativelanguage.googleapis.com/v1beta/openai` (Bearer auth; `/chat/completions` and `/models`). Listed ids sometimes arrive as `models/gemini-…`. CodexGateway strips that prefix, so a catalog slug looks like `gemini/gemini-2.5-flash` with upstream id `gemini-2.5-flash`. Gemini 3 and 4 tool calls include a thought signature. CodexGateway keeps it and sends that same value back on the next turn to Google, including after the app restarts. Signatures are stored in `~/.codexgateway/tool_call_extra_content.json` for 24 hours (at most 1024 calls). Other providers are unchanged.
 
 You can add, edit, and delete providers. A provider can't be removed while it still has installed models — delete its models first.
 
@@ -172,6 +172,7 @@ CodexGateway keeps its own data under `~/.codexgateway/` and writes only a clear
 | `~/.codexgateway/providers.json` | Provider endpoints + API keys (read live by the gateway) |
 | `~/.codexgateway/custom_model_catalog.json` | Your installed models + routing metadata |
 | `~/.codexgateway/fetched_models.json` | Cache of provider model lists |
+| `~/.codexgateway/tool_call_extra_content.json` | Gemini thought signatures, kept for 24 hours so a restart can send them back |
 | `~/.codex/config.toml` | Codex config — CodexGateway patches a managed block only |
 | `~/.codex/model-catalogs/custom-providers.json` | Codex model catalog export for Desktop + CLI (custom models only) |
 

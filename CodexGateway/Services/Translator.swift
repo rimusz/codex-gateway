@@ -271,20 +271,50 @@ enum Translator {
   }
 }
 
-/// In-memory `tool_calls[].extra_content` for providers that require it on the
-/// next turn. Codex re-sends `function_call` items from a fixed schema
+/// `tool_calls[].extra_content` for providers that require it on the next turn.
+/// Codex re-sends `function_call` items from a fixed schema
 /// (`call_id`, `name`, `arguments`, `namespace`) and drops unknown fields such
 /// as Gemini's `extra_content.google.thought_signature`, so the gateway keeps
 /// the object and puts it back only when the follow-up goes to the same provider.
+///
+/// `shared` persists to `Paths.toolCallExtraContentCache` with an atomic replace.
+/// A missing or corrupt file starts empty. Entries older than `ttl` are dropped
+/// on load and on access. Load and `remember` then drop the oldest call id past
+/// `maxEntries`.
 final class ToolCallExtraContentStore: @unchecked Sendable {
-  static let shared = ToolCallExtraContentStore()
+  static let shared = ToolCallExtraContentStore(filePath: Paths.toolCallExtraContentCache)
   /// A Codex thread re-sends every earlier function call. The cap has to cover
-  /// a long thread; the oldest call id is dropped first.
+  /// a long thread. Expired entries are removed first; the oldest stored call
+  /// id is dropped if the rest still do not fit.
   static let maxEntries = 1024
+  static let ttl: TimeInterval = 24 * 60 * 60
+
+  private struct Entry {
+    var providerID: String
+    var callID: String
+    var extraContent: [String: Any]
+    var storedAt: Date
+  }
 
   private let lock = NSLock()
   private var order: [String] = []
-  private var entries: [String: [String: Any]] = [:]
+  private var entries: [String: Entry] = [:]
+  private let filePath: String?
+  private let now: () -> Date
+  private let maxEntries: Int
+
+  /// `filePath == nil` stays in memory so translation tests do not touch the
+  /// real cache. `shared` passes `Paths.toolCallExtraContentCache`.
+  init(
+    filePath: String? = nil,
+    now: @escaping () -> Date = { Date() },
+    maxEntries: Int = ToolCallExtraContentStore.maxEntries
+  ) {
+    self.filePath = filePath
+    self.now = now
+    self.maxEntries = max(0, maxEntries)
+    loadFromDisk()
+  }
 
   func remember(providerID: String, callID: String, extraContent: [String: Any]) {
     let provider = providerID.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -294,29 +324,151 @@ final class ToolCallExtraContentStore: @unchecked Sendable {
     let key = Self.key(providerID: provider, callID: call)
     lock.lock()
     defer { lock.unlock() }
+    let instant = now()
+    purgeExpiredLocked(at: instant)
     if entries[key] == nil {
       order.append(key)
     }
-    entries[key] = copy
-    while order.count > Self.maxEntries {
+    // Re-storing a call id keeps its cap position and restarts the TTL.
+    entries[key] = Entry(
+      providerID: provider,
+      callID: call,
+      extraContent: copy,
+      storedAt: instant
+    )
+    while order.count > self.maxEntries {
       let oldest = order.removeFirst()
       entries.removeValue(forKey: oldest)
     }
+    persistUnlocked()
   }
 
   func extraContent(providerID: String, callID: String) -> [String: Any]? {
     let provider = providerID.trimmingCharacters(in: .whitespacesAndNewlines)
     let call = callID.trimmingCharacters(in: .whitespacesAndNewlines)
     guard !provider.isEmpty, !call.isEmpty else { return nil }
+    let key = Self.key(providerID: provider, callID: call)
     lock.lock()
-    let stored = entries[Self.key(providerID: provider, callID: call)]
+    let removed = purgeExpiredLocked(at: now())
+    let stored = entries[key]?.extraContent
+    if removed {
+      persistUnlocked()
+    }
     lock.unlock()
     guard let stored else { return nil }
     return Self.detachedCopy(stored)
   }
 
+  private func purgeExpiredLocked(at instant: Date) -> Bool {
+    var kept: [String] = []
+    kept.reserveCapacity(order.count)
+    var removed = false
+    for key in order {
+      guard let entry = entries[key], instant.timeIntervalSince(entry.storedAt) < Self.ttl else {
+        entries.removeValue(forKey: key)
+        removed = true
+        continue
+      }
+      kept.append(key)
+    }
+    if removed { order = kept }
+    return removed
+  }
+
+  private func loadFromDisk() {
+    guard let filePath else { return }
+    guard FileManager.default.fileExists(atPath: filePath) else { return }
+    let url = URL(fileURLWithPath: filePath)
+    let data: Data
+    do {
+      data = try Data(contentsOf: url)
+    } catch {
+      GatewayLog.error("Ignoring unreadable tool-call extra content cache: \(error.localizedDescription)")
+      return
+    }
+    if data.isEmpty { return }
+    guard let root = try? JSONSerialization.jsonObject(with: data) else {
+      GatewayLog.error("Ignoring corrupt tool-call extra content cache")
+      return
+    }
+    guard let object = root as? [String: Any] else {
+      GatewayLog.error("Ignoring corrupt tool-call extra content cache")
+      return
+    }
+    guard let rawEntries = object["entries"] else { return }
+    guard let rows = rawEntries as? [Any] else {
+      GatewayLog.error("Ignoring corrupt tool-call extra content cache")
+      return
+    }
+    let instant = now()
+    for case let row as [String: Any] in rows {
+      guard let provider = (row["provider_id"] as? String)?
+        .trimmingCharacters(in: .whitespacesAndNewlines),
+        !provider.isEmpty,
+        let call = (row["call_id"] as? String)?
+          .trimmingCharacters(in: .whitespacesAndNewlines),
+        !call.isEmpty,
+        let extra = row["extra_content"] as? [String: Any],
+        !extra.isEmpty,
+        let storedAt = Self.date(fromJSONNumber: row["stored_at"]),
+        instant.timeIntervalSince(storedAt) < Self.ttl,
+        let copy = Self.detachedCopy(extra) else { continue }
+      let key = Self.key(providerID: provider, callID: call)
+      if entries[key] == nil {
+        order.append(key)
+      }
+      entries[key] = Entry(
+        providerID: provider,
+        callID: call,
+        extraContent: copy,
+        storedAt: storedAt
+      )
+    }
+    while order.count > self.maxEntries {
+      let oldest = order.removeFirst()
+      entries.removeValue(forKey: oldest)
+    }
+  }
+
+  /// Caller holds `lock`. A write failure leaves the in-memory entry in place.
+  private func persistUnlocked() {
+    guard let filePath else { return }
+    var rows: [[String: Any]] = []
+    rows.reserveCapacity(order.count)
+    for key in order {
+      guard let entry = entries[key] else { continue }
+      rows.append([
+        "provider_id": entry.providerID,
+        "call_id": entry.callID,
+        "stored_at": entry.storedAt.timeIntervalSince1970,
+        "extra_content": entry.extraContent
+      ])
+    }
+    do {
+      let url = URL(fileURLWithPath: filePath)
+      try FileManager.default.createDirectory(
+        at: url.deletingLastPathComponent(),
+        withIntermediateDirectories: true
+      )
+      let data = try JSONSerialization.data(
+        withJSONObject: ["entries": rows],
+        options: [.prettyPrinted, .sortedKeys]
+      )
+      try data.write(to: url, options: .atomic)
+    } catch {
+      GatewayLog.error("Could not persist tool-call extra content: \(error.localizedDescription)")
+    }
+  }
+
   private static func key(providerID: String, callID: String) -> String {
     providerID + "\u{1f}" + callID
+  }
+
+  private static func date(fromJSONNumber value: Any?) -> Date? {
+    guard let number = value as? NSNumber else { return nil }
+    let instant = number.doubleValue
+    guard instant.isFinite else { return nil }
+    return Date(timeIntervalSince1970: instant)
   }
 
   /// Independent JSON tree so a later mutation of the parse buffer cannot

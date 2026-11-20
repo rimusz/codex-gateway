@@ -14,6 +14,8 @@ enum Paths {
   static let modelCatalog = "\(configDir)/custom_model_catalog.json"
   static let providersConfig = "\(configDir)/providers.json"
   static let fetchedModelsCache = "\(configDir)/fetched_models.json"
+  /// Gemini `tool_calls[].extra_content`, keyed by provider id and call id.
+  static let toolCallExtraContentCache = "\(configDir)/tool_call_extra_content.json"
   static let gatewayPort: UInt16 = 8765
   static let gatewayHost = "127.0.0.1"
 
