@@ -632,6 +632,161 @@ final class TranslatorTests: XCTestCase {
     }
 }
 
+final class ToolCallExtraContentStoreTests: XCTestCase {
+    private var tempPath: String!
+    private var clock: ToolCallExtraContentClock!
+
+    override func setUp() {
+        super.setUp()
+        tempPath = FileManager.default.temporaryDirectory
+            .appendingPathComponent("tool-call-extra-\(UUID().uuidString).json")
+            .path
+        clock = ToolCallExtraContentClock(Date(timeIntervalSince1970: 1_800_000_000))
+    }
+
+    override func tearDown() {
+        if let tempPath {
+            try? FileManager.default.removeItem(atPath: tempPath)
+        }
+        tempPath = nil
+        clock = nil
+        super.tearDown()
+    }
+
+    func testCacheLimits() {
+        XCTAssertEqual(ToolCallExtraContentStore.maxEntries, 1024)
+        XCTAssertEqual(ToolCallExtraContentStore.ttl, 24 * 60 * 60)
+        XCTAssertTrue(Paths.toolCallExtraContentCache.hasSuffix("/.codexgateway/tool_call_extra_content.json"))
+    }
+
+    func testPersistedSignatureSurvivesReload() {
+        let signature = "sig/with+slash=\"quoted\"\\end-\u{00e9}"
+        let store = makeStore()
+        store.remember(
+            providerID: "gemini",
+            callID: "call_gemini",
+            extraContent: google(signature)
+        )
+
+        let reloaded = makeStore()
+        XCTAssertEqual(storedSignature(reloaded, "call_gemini"), signature)
+        XCTAssertNil(reloaded.extraContent(providerID: "deepseek", callID: "call_gemini"))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: tempPath))
+    }
+
+    func testExpiredEntriesAreNotRestored() {
+        let start = clock.now
+        let store = makeStore()
+        store.remember(providerID: "gemini", callID: "call_old", extraContent: google("old-sig"))
+        clock.now = start.addingTimeInterval(ToolCallExtraContentStore.ttl - 1)
+        store.remember(providerID: "gemini", callID: "call_young", extraContent: google("young-sig"))
+
+        clock.now = start.addingTimeInterval(ToolCallExtraContentStore.ttl)
+        let reloaded = makeStore()
+        XCTAssertNil(reloaded.extraContent(providerID: "gemini", callID: "call_old"))
+        XCTAssertEqual(storedSignature(reloaded, "call_young"), "young-sig")
+    }
+
+    func testExpiredEntryIsDroppedOnAccess() {
+        let start = clock.now
+        let store = makeStore()
+        store.remember(providerID: "gemini", callID: "call_old", extraContent: google("old-sig"))
+        clock.now = start.addingTimeInterval(ToolCallExtraContentStore.ttl - 1)
+        store.remember(providerID: "gemini", callID: "call_young", extraContent: google("young-sig"))
+        clock.now = start.addingTimeInterval(ToolCallExtraContentStore.ttl)
+        XCTAssertNil(store.extraContent(providerID: "gemini", callID: "call_old"))
+        XCTAssertEqual(storedSignature(store, "call_young"), "young-sig")
+
+        // Rewind so a stale file would still be inside the TTL. The drop has to
+        // have been written, and the younger call has to still be there.
+        clock.now = start
+        let reloaded = makeStore()
+        XCTAssertNil(reloaded.extraContent(providerID: "gemini", callID: "call_old"))
+        XCTAssertEqual(storedSignature(reloaded, "call_young"), "young-sig")
+    }
+
+    func testSizeCapDropsOldestPersistedEntry() {
+        let store = makeStore(maxEntries: 2)
+        store.remember(providerID: "gemini", callID: "call_1", extraContent: google("sig-1"))
+        clock.now = clock.now.addingTimeInterval(1)
+        store.remember(providerID: "gemini", callID: "call_2", extraContent: google("sig-2"))
+        clock.now = clock.now.addingTimeInterval(1)
+        store.remember(providerID: "gemini", callID: "call_3", extraContent: google("sig-3"))
+
+        XCTAssertNil(store.extraContent(providerID: "gemini", callID: "call_1"))
+        XCTAssertEqual(storedSignature(store, "call_2"), "sig-2")
+        XCTAssertEqual(storedSignature(store, "call_3"), "sig-3")
+
+        let reloaded = makeStore()
+        XCTAssertNil(reloaded.extraContent(providerID: "gemini", callID: "call_1"))
+        XCTAssertEqual(storedSignature(reloaded, "call_2"), "sig-2")
+        XCTAssertEqual(storedSignature(reloaded, "call_3"), "sig-3")
+    }
+
+    func testIntegerStoredAtReloads() throws {
+        let instant = Int(clock.now.timeIntervalSince1970)
+        let json = """
+        {"entries":[{"call_id":"call_hand","extra_content":{"google":{"thought_signature":"hand-sig"}},"provider_id":"gemini","stored_at":\(instant)}]}
+        """
+        try Data(json.utf8).write(to: URL(fileURLWithPath: tempPath))
+        XCTAssertEqual(storedSignature(makeStore(), "call_hand"), "hand-sig")
+    }
+
+    func testMissingCacheFileStartsEmpty() {
+        let store = makeStore()
+        XCTAssertNil(store.extraContent(providerID: "gemini", callID: "call_gemini"))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: tempPath))
+    }
+
+    func testCorruptCacheFileIsTolerated() throws {
+        let url = URL(fileURLWithPath: tempPath)
+        let fixtures = [
+            Data("{not-json".utf8),
+            Data("[]".utf8),
+            Data(),
+            Data(#"{"entries":"nope"}"#.utf8),
+            Data(#"{"entries":[null, 1, "x"]}"#.utf8),
+        ]
+        for bytes in fixtures {
+            try bytes.write(to: url)
+            let store = makeStore()
+            XCTAssertNil(store.extraContent(providerID: "gemini", callID: "call_gemini"))
+        }
+
+        let signature = "recovered-sig"
+        let store = makeStore()
+        store.remember(providerID: "gemini", callID: "call_gemini", extraContent: google(signature))
+        XCTAssertEqual(storedSignature(makeStore(), "call_gemini"), signature)
+    }
+
+    private func makeStore(maxEntries: Int = ToolCallExtraContentStore.maxEntries) -> ToolCallExtraContentStore {
+        let clock = self.clock!
+        return ToolCallExtraContentStore(
+            filePath: tempPath,
+            now: { clock.now },
+            maxEntries: maxEntries
+        )
+    }
+
+    private func google(_ signature: String) -> [String: Any] {
+        ["google": ["thought_signature": signature]]
+    }
+
+    private func storedSignature(
+        _ store: ToolCallExtraContentStore,
+        _ callID: String,
+        providerID: String = "gemini"
+    ) -> String? {
+        guard let extra = store.extraContent(providerID: providerID, callID: callID) else { return nil }
+        return thoughtSignature(["extra_content": extra])
+    }
+}
+
+private final class ToolCallExtraContentClock: @unchecked Sendable {
+    var now: Date
+    init(_ now: Date) { self.now = now }
+}
+
 private func dataLine(_ object: [String: Any], spaced: Bool = true) -> String {
     let data = try! JSONSerialization.data(withJSONObject: object)
     let json = String(decoding: data, as: UTF8.self)
