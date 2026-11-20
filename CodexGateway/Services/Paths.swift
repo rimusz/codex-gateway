@@ -1,21 +1,41 @@
 import Foundation
 
 enum Paths {
-  static let home = FileManager.default.homeDirectoryForCurrentUser.path
+  /// Real user home. Cached so production path strings stay stable.
+  private static let userHome = FileManager.default.homeDirectoryForCurrentUser.path
+
+  /// When set, every path below is rooted here instead of the user home.
+  /// The app leaves this nil. Tests set a temporary directory before they
+  /// read or write these files, and clear it when the bundle finishes.
+  static var rootDirectoryOverride: String?
+
+  /// `override` nil or blank uses the real user home. A non-empty value is the root.
+  static func homePath(rootedAt override: String?) -> String {
+    if let override = override?.trimmingCharacters(in: .whitespacesAndNewlines),
+       !override.isEmpty {
+      return override
+    }
+    return userHome
+  }
+
+  static var home: String {
+    homePath(rootedAt: rootDirectoryOverride)
+  }
+
   /// Canonical CodexGateway config directory.
-  static let configDir = "\(home)/.codexgateway"
+  static var configDir: String { "\(home)/.codexgateway" }
   /// Pre-rename config directory; migrated once into `configDir` on launch.
-  static let legacyConfigDir = "\(home)/.codexbar"
-  static let codexHome = "\(home)/.codex"
-  static let codexModelCatalogDir = "\(home)/.codex/model-catalogs"
-  static let codexModelCatalog = "\(codexModelCatalogDir)/custom-providers.json"
-  static let codexConfig = "\(home)/.codex/config.toml"
-  static let codexAuth = "\(home)/.codex/auth.json"
-  static let modelCatalog = "\(configDir)/custom_model_catalog.json"
-  static let providersConfig = "\(configDir)/providers.json"
-  static let fetchedModelsCache = "\(configDir)/fetched_models.json"
+  static var legacyConfigDir: String { "\(home)/.codexbar" }
+  static var codexHome: String { "\(home)/.codex" }
+  static var codexModelCatalogDir: String { "\(codexHome)/model-catalogs" }
+  static var codexModelCatalog: String { "\(codexModelCatalogDir)/custom-providers.json" }
+  static var codexConfig: String { "\(codexHome)/config.toml" }
+  static var codexAuth: String { "\(codexHome)/auth.json" }
+  static var modelCatalog: String { "\(configDir)/custom_model_catalog.json" }
+  static var providersConfig: String { "\(configDir)/providers.json" }
+  static var fetchedModelsCache: String { "\(configDir)/fetched_models.json" }
   /// Gemini `tool_calls[].extra_content`, keyed by provider id and call id.
-  static let toolCallExtraContentCache = "\(configDir)/tool_call_extra_content.json"
+  static var toolCallExtraContentCache: String { "\(configDir)/tool_call_extra_content.json" }
   static let gatewayPort: UInt16 = 8765
   static let gatewayHost = "127.0.0.1"
 

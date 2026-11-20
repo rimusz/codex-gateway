@@ -4,7 +4,7 @@ import SwiftUI
 @testable import CodexGateway
 
 @MainActor
-final class SetupWindowControllerTests: XCTestCase {
+final class SetupWindowControllerTests: CodexGatewayTestCase {
     func testSetupWindowKeepsWindowAliveAfterClose() {
         let delegate = SetupWindowTestDelegate()
         let hosting = NSHostingController(rootView: EmptyView())

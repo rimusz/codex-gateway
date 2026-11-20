@@ -4,7 +4,7 @@ import SwiftUI
 @testable import CodexGateway
 
 @MainActor
-final class SettingsWindowControllerTests: XCTestCase {
+final class SettingsWindowControllerTests: CodexGatewayTestCase {
     func testGatewayConfigNotesDescribePickerSwap() {
         XCTAssertTrue(GatewayConfigCopy.updateNote.contains("Native Codex models are removed"))
         XCTAssertTrue(GatewayConfigCopy.updateNote.contains("restarts the Codex app and CLI daemon"))

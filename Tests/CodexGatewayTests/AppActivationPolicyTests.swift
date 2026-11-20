@@ -1,7 +1,7 @@
 import XCTest
 @testable import CodexGateway
 
-final class AppActivationPolicyTests: XCTestCase {
+final class AppActivationPolicyTests: CodexGatewayTestCase {
   func testShouldRestoreAccessoryWhenNoOtherVisibleWindows() {
     XCTAssertTrue(AppActivationPolicy.shouldRestoreAccessory(hasOtherVisibleWindow: false))
   }

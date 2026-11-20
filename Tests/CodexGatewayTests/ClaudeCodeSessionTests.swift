@@ -1,7 +1,7 @@
 import XCTest
 @testable import CodexGateway
 
-final class ClaudeCodeSessionTests: XCTestCase {
+final class ClaudeCodeSessionTests: CodexGatewayTestCase {
   private var tempDir: URL!
 
   override func setUpWithError() throws {

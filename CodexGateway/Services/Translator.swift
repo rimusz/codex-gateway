@@ -278,11 +278,12 @@ enum Translator {
 /// the object and puts it back only when the follow-up goes to the same provider.
 ///
 /// `shared` persists to `Paths.toolCallExtraContentCache` with an atomic replace.
-/// A missing or corrupt file starts empty. Entries older than `ttl` are dropped
-/// on load and on access. Load and `remember` then drop the oldest call id past
-/// `maxEntries`.
+/// The path is resolved on each disk access, so a test override of `Paths` is
+/// honored. A missing or corrupt file starts empty. Entries older than `ttl`
+/// are dropped on load and on access. Load and `remember` then drop the oldest
+/// call id past `maxEntries`.
 final class ToolCallExtraContentStore: @unchecked Sendable {
-  static let shared = ToolCallExtraContentStore(filePath: Paths.toolCallExtraContentCache)
+  static let shared = ToolCallExtraContentStore(tracksPathsCache: true)
   /// A Codex thread re-sends every earlier function call. The cap has to cover
   /// a long thread. Expired entries are removed first; the oldest stored call
   /// id is dropped if the rest still do not fit.
@@ -299,21 +300,30 @@ final class ToolCallExtraContentStore: @unchecked Sendable {
   private let lock = NSLock()
   private var order: [String] = []
   private var entries: [String: Entry] = [:]
-  private let filePath: String?
+  private let pinnedFilePath: String?
+  private let tracksPathsCache: Bool
   private let now: () -> Date
   private let maxEntries: Int
 
   /// `filePath == nil` stays in memory so translation tests do not touch the
-  /// real cache. `shared` passes `Paths.toolCallExtraContentCache`.
+  /// cache. `tracksPathsCache` reads and writes `Paths.toolCallExtraContentCache`
+  /// on each disk access. `shared` uses that mode.
   init(
     filePath: String? = nil,
     now: @escaping () -> Date = { Date() },
-    maxEntries: Int = ToolCallExtraContentStore.maxEntries
+    maxEntries: Int = ToolCallExtraContentStore.maxEntries,
+    tracksPathsCache: Bool = false
   ) {
-    self.filePath = filePath
+    self.pinnedFilePath = filePath
+    self.tracksPathsCache = tracksPathsCache
     self.now = now
     self.maxEntries = max(0, maxEntries)
     loadFromDisk()
+  }
+
+  private var filePath: String? {
+    if tracksPathsCache { return Paths.toolCallExtraContentCache }
+    return pinnedFilePath
   }
 
   func remember(providerID: String, callID: String, extraContent: [String: Any]) {

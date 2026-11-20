@@ -1,7 +1,7 @@
 import XCTest
 @testable import CodexGateway
 
-final class ModelCatalogTests: XCTestCase {
+final class ModelCatalogTests: CodexGatewayTestCase {
     func testProviderParsingRequiresNameAndBaseURL() {
         XCTAssertNil(ModelCatalog.provider(from: ["name": "x"]))
         XCTAssertNil(ModelCatalog.provider(from: ["base_url": "https://x/v1"]))

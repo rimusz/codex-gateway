@@ -1,7 +1,7 @@
 import XCTest
 @testable import CodexGateway
 
-final class ProviderModelFetcherTests: XCTestCase {
+final class ProviderModelFetcherTests: CodexGatewayTestCase {
     func testModelsURLPreservesVersionPath() {
         XCTAssertEqual(
             ProviderModelFetcher.modelsURL(for: "https://dashscope-intl.aliyuncs.com/compatible-mode/v1")?.absoluteString,

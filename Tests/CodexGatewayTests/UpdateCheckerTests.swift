@@ -1,7 +1,7 @@
 import XCTest
 @testable import CodexGateway
 
-final class UpdateCheckerTests: XCTestCase {
+final class UpdateCheckerTests: CodexGatewayTestCase {
     func testNormalizedVersionStripsLeadingV() {
         XCTAssertEqual(UpdateChecker.normalizedVersion("v0.1.3"), "0.1.3")
         XCTAssertEqual(UpdateChecker.normalizedVersion("V1.2.0"), "1.2.0")

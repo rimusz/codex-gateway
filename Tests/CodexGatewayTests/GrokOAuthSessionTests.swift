@@ -1,7 +1,7 @@
 import XCTest
 @testable import CodexGateway
 
-final class GrokOAuthSessionTests: XCTestCase {
+final class GrokOAuthSessionTests: CodexGatewayTestCase {
   private var tempDir: URL!
 
   override func setUpWithError() throws {

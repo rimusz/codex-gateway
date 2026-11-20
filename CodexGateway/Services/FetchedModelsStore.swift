@@ -4,11 +4,14 @@ struct FetchedModelsFile: Codable {
   var providers: [String: [FetchedModel]]
 }
 
-/// Persists provider `/models` fetch results under `~/.codexgateway/fetched_models.json`.
+/// Persists provider `/models` fetch results under `Paths.fetchedModelsCache`
+/// (`~/.codexgateway/fetched_models.json` when `Paths.rootDirectoryOverride` is nil).
 final class FetchedModelsStore {
   static let shared = FetchedModelsStore()
 
-  private let filePath: String
+  /// Explicit file. Nil follows `Paths.fetchedModelsCache` on each read and write
+  /// so a test override applies even if `shared` was created earlier.
+  private let filePathOverride: String?
   private static let encoder: JSONEncoder = {
     let encoder = JSONEncoder()
     encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
@@ -17,8 +20,12 @@ final class FetchedModelsStore {
 
   private static let decoder = JSONDecoder()
 
-  init(filePath: String = Paths.fetchedModelsCache) {
-    self.filePath = filePath
+  init(filePath: String? = nil) {
+    self.filePathOverride = filePath
+  }
+
+  private var filePath: String {
+    filePathOverride ?? Paths.fetchedModelsCache
   }
 
   func load() -> [String: [FetchedModel]] {

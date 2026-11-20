@@ -1,7 +1,7 @@
 import XCTest
 @testable import CodexGateway
 
-final class CodexConfigTests: XCTestCase {
+final class CodexConfigTests: CodexGatewayTestCase {
     func testStripManagedBlocksRemovesManagedSections() {
         let input = """
         [cli]

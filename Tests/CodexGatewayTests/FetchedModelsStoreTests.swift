@@ -1,7 +1,7 @@
 import XCTest
 @testable import CodexGateway
 
-final class FetchedModelsStoreTests: XCTestCase {
+final class FetchedModelsStoreTests: CodexGatewayTestCase {
     private var tempPath: String!
 
     override func setUp() {

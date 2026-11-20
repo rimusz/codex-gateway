@@ -18,7 +18,7 @@ private final class DoctorRepairCallRecorder: @unchecked Sendable {
   }
 }
 
-final class DoctorReportTests: XCTestCase {
+final class DoctorReportTests: CodexGatewayTestCase {
   private func healthyInputs() -> DoctorInputs {
     DoctorInputs(
       gatewayReachable: true,

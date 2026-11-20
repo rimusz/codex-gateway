@@ -1,7 +1,7 @@
 import XCTest
 @testable import CodexGateway
 
-final class CustomProviderExampleTests: XCTestCase {
+final class CustomProviderExampleTests: CodexGatewayTestCase {
   func testSparkDeepSeekExampleConstants() {
     XCTAssertEqual(CustomProviderExample.sparkProviderID, "spark-deepseek")
     XCTAssertEqual(CustomProviderExample.sparkDisplayName, "Spark DeepSeek")

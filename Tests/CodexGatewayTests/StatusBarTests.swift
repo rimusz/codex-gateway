@@ -1,7 +1,7 @@
 import XCTest
 @testable import CodexGateway
 
-final class StatusBarTests: XCTestCase {
+final class StatusBarTests: CodexGatewayTestCase {
     func testAppStatusAccessibilityLabels() {
         XCTAssertEqual(AppStatus.idle.accessibilityLabel, "Ready")
         XCTAssertEqual(AppStatus.loading.accessibilityLabel, "Loading")

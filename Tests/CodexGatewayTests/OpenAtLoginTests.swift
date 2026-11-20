@@ -2,7 +2,7 @@ import XCTest
 import ServiceManagement
 @testable import CodexGateway
 
-final class OpenAtLoginTests: XCTestCase {
+final class OpenAtLoginTests: CodexGatewayTestCase {
   func testMenuCopy() {
     XCTAssertEqual(OpenAtLoginMenuCopy.title, "Open at Login")
     XCTAssertTrue(OpenAtLoginMenuCopy.approvalMessage.contains("Login Items"))

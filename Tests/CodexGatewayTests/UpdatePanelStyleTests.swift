@@ -2,7 +2,7 @@ import AppKit
 import XCTest
 @testable import CodexGateway
 
-final class UpdatePanelStyleTests: XCTestCase {
+final class UpdatePanelStyleTests: CodexGatewayTestCase {
   func testDockCornerRadiusMatchesMacOSIconRatio() {
     XCTAssertEqual(UpdatePanelStyle.dockCornerRadius(for: 64), 64 * 0.2237, accuracy: 0.0001)
     XCTAssertEqual(UpdatePanelStyle.dockCornerRadius(for: 128), 128 * 0.2237, accuracy: 0.0001)

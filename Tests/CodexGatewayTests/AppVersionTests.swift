@@ -2,7 +2,7 @@ import XCTest
 import AppKit
 @testable import CodexGateway
 
-final class AppVersionTests: XCTestCase {
+final class AppVersionTests: CodexGatewayTestCase {
     func testShortVersionIsNonEmpty() {
         XCTAssertFalse(AppVersion.short.isEmpty)
     }

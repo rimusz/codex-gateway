@@ -3,7 +3,7 @@ import XCTest
 import zlib
 @testable import CodexGateway
 
-final class LoopbackHTTPServerTests: XCTestCase {
+final class LoopbackHTTPServerTests: CodexGatewayTestCase {
     func testDecodeChunkedBody() throws {
         let data = Data("7\r\n{\"a\":1}\r\n0\r\n\r\n".utf8)
 

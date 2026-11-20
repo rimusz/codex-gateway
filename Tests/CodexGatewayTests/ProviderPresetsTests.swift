@@ -1,7 +1,7 @@
 import XCTest
 @testable import CodexGateway
 
-final class ProviderPresetsTests: XCTestCase {
+final class ProviderPresetsTests: CodexGatewayTestCase {
     func testZaiPresetDefinition() {
         let preset = ProviderPreset.zai
         XCTAssertEqual(preset.displayName, "Z.ai (GLM)")

@@ -1,7 +1,7 @@
 import XCTest
 @testable import CodexGateway
 
-final class SetupPresentationTests: XCTestCase {
+final class SetupPresentationTests: CodexGatewayTestCase {
     private func provider(
         name: String,
         baseURL: String = "https://example.com/v1",
