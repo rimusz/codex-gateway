@@ -15,6 +15,8 @@ enum ChatUpstreamFailure: LocalizedError, Sendable {
   }
 }
 
+typealias ChatUpstreamStream = AsyncThrowingStream<ChatUpstreamEvent, Error>
+
 protocol ResponsesEventSink: AnyObject, Sendable {
   func sendJSONError(status: Int, body: Data)
   func openEventStream()
@@ -546,7 +548,7 @@ final class GatewayServer {
     namespaceMap: [String: String],
     sink: ResponsesEventSink,
     retryDelaysMs: [UInt64] = chatStreamRetryDelaysMs,
-    open: @Sendable (_ attempt: Int) -> AsyncThrowingStream<ChatUpstreamEvent, Error>
+    open: @Sendable (_ attempt: Int) -> ChatUpstreamStream
   ) async {
     let state = ResponsesStreamState(model: requestedModel, namespaceMap: namespaceMap)
     var opened = false
@@ -643,8 +645,8 @@ final class GatewayServer {
     }
   }
 
-  static func urlSessionChatStream(_ request: URLRequest) -> AsyncThrowingStream<ChatUpstreamEvent, Error> {
-    AsyncThrowingStream { continuation in
+  static func urlSessionChatStream(_ request: URLRequest) -> ChatUpstreamStream {
+    ChatUpstreamStream { (continuation: ChatUpstreamStream.Continuation) in
       let task = Task {
         do {
           let (bytes, urlResponse) = try await URLSession.shared.bytes(for: request)
@@ -663,10 +665,12 @@ final class GatewayServer {
           }
           continuation.finish()
         } catch {
-          continuation.finish(throwing: .interrupted(error.localizedDescription))
+          continuation.finish(throwing: ChatUpstreamFailure.interrupted(error.localizedDescription))
         }
       }
-      continuation.onTermination = { _ in task.cancel() }
+      continuation.onTermination = { (_: ChatUpstreamStream.Continuation.Termination) in
+        task.cancel()
+      }
     }
   }
 
@@ -674,8 +678,8 @@ final class GatewayServer {
     status: Int,
     lines: [String],
     thenThrow error: ChatUpstreamFailure? = nil
-  ) -> AsyncThrowingStream<ChatUpstreamEvent, Error> {
-    AsyncThrowingStream { continuation in
+  ) -> ChatUpstreamStream {
+    ChatUpstreamStream { (continuation: ChatUpstreamStream.Continuation) in
       let task = Task {
         continuation.yield(.status(status))
         for line in lines {
@@ -695,7 +699,9 @@ final class GatewayServer {
           continuation.finish()
         }
       }
-      continuation.onTermination = { _ in task.cancel() }
+      continuation.onTermination = { (_: ChatUpstreamStream.Continuation.Termination) in
+        task.cancel()
+      }
     }
   }
 

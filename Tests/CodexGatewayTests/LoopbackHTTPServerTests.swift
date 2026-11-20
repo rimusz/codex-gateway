@@ -271,7 +271,7 @@ final class LoopbackHTTPServerTests: XCTestCase {
     }
 
     func testRelayForwardsTextDeltaBeforeUpstreamEnds() async {
-        let (stream, continuation) = AsyncThrowingStream<ChatUpstreamEvent, Error>.makeStream()
+        let (stream, continuation) = ChatUpstreamStream.makeStream()
         let sink = RecordingSink()
         let delta = expectation(description: "text delta")
         sink.setOnEvent { event in
@@ -607,7 +607,7 @@ private final class ScriptedChatUpstream: @unchecked Sendable {
         return _opens
     }
 
-    func open(_ attempt: Int) -> AsyncThrowingStream<ChatUpstreamEvent, Error> {
+    func open(_ attempt: Int) -> ChatUpstreamStream {
         lock.lock()
         _opens += 1
         lock.unlock()
@@ -616,7 +616,7 @@ private final class ScriptedChatUpstream: @unchecked Sendable {
             : Attempt(events: [], failure: .interrupted("missing attempt"))
         let events = script.events
         let failure = script.failure
-        return AsyncThrowingStream { continuation in
+        return ChatUpstreamStream { (continuation: ChatUpstreamStream.Continuation) in
             let task = Task {
                 for event in events {
                     if Task.isCancelled { return }
@@ -629,7 +629,9 @@ private final class ScriptedChatUpstream: @unchecked Sendable {
                     continuation.finish()
                 }
             }
-            continuation.onTermination = { _ in task.cancel() }
+            continuation.onTermination = { (_: ChatUpstreamStream.Continuation.Termination) in
+                task.cancel()
+            }
         }
     }
 }
