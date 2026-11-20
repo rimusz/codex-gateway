@@ -4,6 +4,12 @@ on:
   pull_request:
     branches:
       - main
+    # Docs/skills-only PRs do not need macOS test+build.
+    paths-ignore:
+      - '**/*.md'
+      - 'docs/**'
+      - 'LICENSE'
+      - '.cursor/**'
   workflow_dispatch:
 
 concurrency:

@@ -15,8 +15,10 @@ Validates that the project builds and tests pass on macOS before merge.
 
 ### Triggers
 
-- **`pull_request`** → branch `main`
+- **`pull_request`** → branch `main`, except when the diff is **docs-only** (`**/*.md`, `docs/**`, `LICENSE`, `.cursor/**`)
 - **`workflow_dispatch`** — run manually from **Actions → PR Checks → Run workflow**
+
+A PR that only changes markdown, `docs/` assets, `LICENSE`, or `.cursor/` does **not** run this workflow — merge without waiting on CI. Any Swift/app/script/workflow change still triggers the full check (even if docs change in the same PR).
 
 ### Concurrency
 
