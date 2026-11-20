@@ -94,6 +94,8 @@ If the gateway, Codex config, Node.js, Cursor, Grok OAuth, or Claude Code login 
 
 If Codex shows your prompt and then **nothing** (blank assistant turn), either the gateway forwarded a dummy bearer to OpenAI, dropped third-party **tool calls** from the Responses stream, or sent a ChatGPT login to `api.openai.com` instead of ChatGPT’s Codex backend. Restart CodexGateway after updating, then **Restart Codex**. Native GPT and custom models both work with or without Zscaler — the gateway uses the macOS trust store, not a pinned corporate certificate.
 
+Custom-model text is streamed to Codex as the provider sends it. If that stream drops in the middle of a tool call before any text was sent, CodexGateway retries the upstream request up to twice. If text was already sent, the turn fails instead of repeating or mixing two answers.
+
 ## Managing providers & models
 
 Everything lives in the **Settings** window — no browser needed. **Add Provider** (presets and custom add) starts collapsed. The **Providers** and **Models** lists can be collapsed so you can focus on one at a time. They start expanded, and CodexGateway remembers whether you left each one open or closed.
