@@ -1,7 +1,7 @@
 import XCTest
 @testable import CodexGateway
 
-final class TranslatorTests: XCTestCase {
+final class TranslatorTests: CodexGatewayTestCase {
     func testStripThinkRemovesRedactedBlocks() {
         let input = "Hello <think>secret</think> world"
         XCTAssertEqual(Translator.stripThink(input), "Hello  world")
@@ -632,7 +632,7 @@ final class TranslatorTests: XCTestCase {
     }
 }
 
-final class ToolCallExtraContentStoreTests: XCTestCase {
+final class ToolCallExtraContentStoreTests: CodexGatewayTestCase {
     private var tempPath: String!
     private var clock: ToolCallExtraContentClock!
 

@@ -1,7 +1,7 @@
 import XCTest
 @testable import CodexGateway
 
-final class SetupFlowTests: XCTestCase {
+final class SetupFlowTests: CodexGatewayTestCase {
     func testChooseAdvancesToConnect() {
         var flow = SetupFlow()
         XCTAssertEqual(flow.step, .choose)

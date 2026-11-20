@@ -1,7 +1,7 @@
 import XCTest
 @testable import CodexGateway
 
-final class CodexAuthWatcherTests: XCTestCase {
+final class CodexAuthWatcherTests: CodexGatewayTestCase {
     func testSignInStateChangedOnlyOnTransition() {
         XCTAssertTrue(CodexAuthWatcher.signInStateChanged(previous: false, current: true))
         XCTAssertTrue(CodexAuthWatcher.signInStateChanged(previous: true, current: false))

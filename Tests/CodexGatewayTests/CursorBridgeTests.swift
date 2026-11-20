@@ -1,7 +1,7 @@
 import XCTest
 @testable import CodexGateway
 
-final class CursorBridgeTests: XCTestCase {
+final class CursorBridgeTests: CodexGatewayTestCase {
   func testManagedEndpointUsesPort18788() {
     XCTAssertEqual(CursorBridge.managedEndpoint.port, 18788)
     XCTAssertEqual(CursorBridge.managedEndpoint.baseURL, "http://127.0.0.1:18788/v1")

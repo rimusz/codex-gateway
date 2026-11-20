@@ -104,7 +104,7 @@ codex-gateway/                    # GitHub repo (`rimusz/codex-gateway`; legacy 
 │   │   ├── SetupPresentation.swift # First-run show/hide (empty catalog)
 │   │   ├── SetupSession.swift    # In-memory skip-this-launch flag
 │   │   ├── SetupFlow.swift       # Pure setup step machine
-│   │   ├── Paths.swift
+│   │   ├── Paths.swift            # Home-relative config paths. `rootDirectoryOverride` redirects tests off the real home
 │   │   └── GatewayLog.swift
 │   ├── UI/
 │   │   ├── SetupWindowController.swift # First-run setup (empty catalog)
@@ -257,7 +257,7 @@ Release assets: `CodexGateway-{tag}.app.zip`, `CodexGateway-{tag}-macOS.dmg` (no
 
 ## Tests
 
-Unit tests in `Tests/CodexGatewayTests/`:
+Unit tests in `Tests/CodexGatewayTests/`. Every test class subclasses `CodexGatewayTestCase`, which sets `Paths.rootDirectoryOverride` to a temporary directory before that class runs. `Paths.home` and the files under it (`fetched_models.json`, `providers.json`, `custom_model_catalog.json`, `tool_call_extra_content.json`, and the `~/.codex` paths) follow that directory. The override stays in place until XCTest's bundle tearDown so a store cannot fall back to the real home between classes, and the temporary directory is removed then. The app leaves the override nil, so production paths stay under the user home.
 
 - `TranslatorTests` — translation, namespace mapping, think stripping, Responses stream tool-call assembly (buffered until `finish_reason` / `[DONE]`), Gemini `extra_content` thought signatures (non-stream, stream, parallel calls, provider scope) and `ToolCallExtraContentStore` persistence (reload, TTL, size cap, corrupt file)
 - `CodexConfigTests` — managed block stripping, ChatGPT `account_id` parse
@@ -276,7 +276,7 @@ Unit tests in `Tests/CodexGatewayTests/`:
 - `UpdateSettingsStoreTests` — skip/dismiss behavior
 - `SettingsWindowControllerTests` — Settings/Doctor/About chrome; Providers/Models disclosure defaults
 - `SetupPresentationTests` / `SetupFlowTests` / `SetupWindowControllerTests` — first-run show/hide, step machine, setup chrome + `shouldPresent`
-- `PathsTests` — legacy config migration
+- `PathsTests` — legacy config migration, and that `Paths.rootDirectoryOverride` is what tests read and write (the real home is left unchanged)
 
 Run `make test` before finishing any code change.
 

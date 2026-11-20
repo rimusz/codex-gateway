@@ -1,7 +1,7 @@
 import XCTest
 @testable import CodexGateway
 
-final class AppIdentityTests: XCTestCase {
+final class AppIdentityTests: CodexGatewayTestCase {
   func testProductNamesAndBundleId() {
     XCTAssertEqual(AppIdentity.productName, "CodexGateway")
     XCTAssertEqual(AppIdentity.legacyProductName, "CodexBar")

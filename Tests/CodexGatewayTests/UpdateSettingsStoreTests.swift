@@ -2,7 +2,7 @@ import XCTest
 @testable import CodexGateway
 
 @MainActor
-final class UpdateSettingsStoreTests: XCTestCase {
+final class UpdateSettingsStoreTests: CodexGatewayTestCase {
     private let autoCheckKey = UpdateSettingsKeys.autoCheckEnabled
     private let dismissedKey = UpdateSettingsKeys.dismissedVersion
 

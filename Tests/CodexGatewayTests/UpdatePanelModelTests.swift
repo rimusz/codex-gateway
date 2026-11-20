@@ -1,7 +1,7 @@
 import XCTest
 @testable import CodexGateway
 
-final class UpdatePanelModelTests: XCTestCase {
+final class UpdatePanelModelTests: CodexGatewayTestCase {
   private func release(
     installed: String,
     latest: String,

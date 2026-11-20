@@ -1,7 +1,7 @@
 import XCTest
 @testable import CodexGateway
 
-final class GrokOAuthClientTests: XCTestCase {
+final class GrokOAuthClientTests: CodexGatewayTestCase {
   func testChatToResponsesMapsMessagesAndTools() {
     let chat: [String: Any] = [
       "model": "grok-4",
