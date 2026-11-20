@@ -119,7 +119,7 @@ Release title format (both paths):
 
 Workflows: `.github/workflows/pr.yml` (PR checks), `.github/workflows/release.yml` (unsigned publish).
 
-**PR checks:** run automatically on pull requests to `main` (`make test` + `make app`).
+**PR checks:** run automatically on pull requests to `main` (`make test` + `make app`), except docs-only diffs (`**/*.md`, `docs/**`, `LICENSE`, `.cursor/**`) — those skip CI.
 
 **Release trigger:** **Actions → Release → Run workflow** (manual dispatch only). Builds unsigned `.app` + DMG; no Apple secrets required.
 

@@ -117,6 +117,8 @@ After push / PR create:
 gh pr checks --watch
 ```
 
+**Docs-only PRs** (only `**/*.md`, `docs/**`, `LICENSE`, `.cursor/**`) do not trigger **PR Checks** (`paths-ignore` in `.github/workflows/pr.yml`). Skip waiting on CI for those; merge when the user asks without a green `Test and Build App` run.
+
 Also poll review activity (do not busy-loop):
 
 ```bash
