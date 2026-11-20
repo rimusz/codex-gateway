@@ -894,7 +894,7 @@ private func readRawResponse(port: UInt16, timeout: TimeInterval) -> RawHTTPRead
 }
 
 private func posixCode(_ code: Int32) -> POSIXErrorCode {
-    code == 0 ? .EIO : POSIXErrorCode(rawValue: code)
+    POSIXErrorCode(rawValue: code) ?? .EIO
 }
 
 private func waitUntil(timeout: TimeInterval, _ predicate: @escaping () -> Bool) async -> Bool {
