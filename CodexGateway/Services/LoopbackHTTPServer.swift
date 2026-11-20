@@ -117,8 +117,14 @@ final class HTTPResponse: @unchecked Sendable {
     }
     let data = outbound.removeFirst()
     sending = true
-    connection.send(content: data, completion: .contentProcessed { [weak self] _ in
-      guard let self else { return }
+    // Retain self until this send finishes and pump() runs again. The request
+    // handler returns as soon as endStream() is queued; those queued blocks are
+    // the only other retains. A weak completion drops them when the last block
+    // returns, deallocating HTTPResponse while later frames (the function_call
+    // item, response.completed, and the terminating 0-chunk) are still in
+    // `outbound`, and connection.cancel() never runs. The retain ends once
+    // outbound is empty and finishAfterFlush cancels the connection.
+    connection.send(content: data, completion: .contentProcessed { _ in
       self.queue.async {
         self.sending = false
         self.pump()

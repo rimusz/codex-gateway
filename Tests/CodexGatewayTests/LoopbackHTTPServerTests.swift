@@ -1,3 +1,4 @@
+import Darwin
 import XCTest
 import zlib
 @testable import CodexGateway
@@ -512,6 +513,73 @@ final class LoopbackHTTPServerTests: XCTestCase {
         XCTAssertEqual(sink.events.compactMap { $0["delta"] as? String }, ["\n\n"])
         XCTAssertEqual(failedError(sink.events)?["code"] as? String, "upstream_stream_interrupted")
     }
+
+    /// A handler that queues several SSE frames and returns must still deliver every
+    /// frame, including the last ones, and the chunked terminator. RecordingSink never
+    /// constructs HTTPResponse, so it cannot see a response that deinits mid-flush.
+    func testChunkedSSEBurstArrivesAfterHandlerReturns() throws {
+        let events = [
+            "data: {\"type\":\"response.output_text.delta\",\"delta\":\"alpha\"}\n\n",
+            "data: {\"type\":\"response.output_item.done\",\"item\":{\"type\":\"function_call\",\"call_id\":\"call_keep\",\"arguments\":\"{\\\"path\\\":\\\"a.txt\\\"}\"}}\n\n",
+            "data: {\"type\":\"response.completed\"}\n\n",
+            "data: {\"type\":\"response.done\"}\n\n"
+        ]
+        let raw = try rawLoopbackResponse(timeout: 4) { response in
+            response.startStream(status: 200, headers: [
+                "Content-Type": "text/event-stream",
+                "Cache-Control": "no-cache"
+            ])
+            for event in events {
+                response.writeChunk(Data(event.utf8))
+            }
+            response.endStream()
+        }
+
+        let text = String(decoding: raw.data, as: UTF8.self)
+        XCTAssertTrue(raw.sawEOF, "connection stayed open; body was \(text)")
+        XCTAssertTrue(text.contains("Transfer-Encoding: chunked"), text)
+        for marker in ["alpha", "call_keep", "a.txt", "response.completed", "response.done"] {
+            XCTAssertTrue(text.contains(marker), "missing \(marker) in \(text)")
+        }
+        XCTAssertTrue(text.hasSuffix("0\r\n\r\n"), text)
+    }
+
+    func testSingleBufferSendClosesAfterBody() throws {
+        let raw = try rawLoopbackResponse(timeout: 4) { response in
+            let body = Data("{\"ok\":true}".utf8)
+            response.send(status: 200, headers: ["Content-Type": "application/json"], body: body)
+        }
+        let text = String(decoding: raw.data, as: UTF8.self)
+        XCTAssertTrue(raw.sawEOF, "single-buffer response did not close; body was \(text)")
+        XCTAssertTrue(text.contains("{\"ok\":true}"), text)
+        XCTAssertTrue(text.contains("Content-Length: 11"), text)
+    }
+
+    /// Grok's Chat SSE is already finished, so this path must not use the default
+    /// 250/750 ms retries. A truncated tool call would otherwise report `retried 2×`.
+    func testGrokOAuthEmitChatSSEAsResponsesDoesNotRetry() async {
+        let sink = RecordingSink()
+        let chatSSE = chatDataLine(toolDelta(
+            index: 0,
+            id: "call_grok",
+            name: "lookup",
+            arguments: #"{"q":"#
+        ))
+        GatewayServer.shared.emitChatSSEAsResponses(
+            chatSSE: chatSSE,
+            requestedModel: "grok-oauth",
+            namespaceMap: [:],
+            response: sink
+        )
+
+        let closed = await waitUntil(timeout: 3) { sink.didClose }
+        XCTAssertTrue(closed, "Grok stream did not finish")
+        XCTAssertEqual(sink.closeCount, 1)
+        XCTAssertTrue(functionCallDones(sink.events).isEmpty)
+        XCTAssertEqual(failedError(sink.events)?["code"] as? String, "upstream_stream_interrupted")
+        let message = failedError(sink.events)?["message"] as? String ?? ""
+        XCTAssertTrue(message.contains("retried 0×"), message)
+    }
 }
 
 private final class RecordingSink: ResponsesEventSink, @unchecked Sendable {
@@ -711,4 +779,129 @@ private func assertStrictlyIncreasingSequences(_ events: [[String: Any]], file: 
         XCTAssertLessThan(pair.0, pair.1, file: file, line: line)
     }
     XCTAssertEqual(numbers.count, events.count, file: file, line: line)
+}
+
+private struct RawHTTPRead {
+    var data: Data
+    var sawEOF: Bool
+}
+
+/// Serves one response on a fresh loopback port and reads the raw bytes, including
+/// chunk framing, until the connection closes or `timeout` elapses.
+private func rawLoopbackResponse(
+    timeout: TimeInterval,
+    handler: @escaping (HTTPResponse) -> Void
+) throws -> RawHTTPRead {
+    let server = LoopbackHTTPServer()
+    let port = try reserveLoopbackPort()
+    server.handler = { _, response in
+        handler(response)
+    }
+    try server.start(host: "127.0.0.1", port: port)
+    defer { server.stop() }
+    return readRawResponse(port: port, timeout: timeout)
+}
+
+private func reserveLoopbackPort() throws -> UInt16 {
+    let fd = socket(AF_INET, SOCK_STREAM, 0)
+    guard fd >= 0 else { throw POSIXError(posixCode(errno)) }
+    defer { close(fd) }
+
+    var addr = sockaddr_in()
+    addr.sin_len = UInt8(MemoryLayout<sockaddr_in>.size)
+    addr.sin_family = sa_family_t(AF_INET)
+    addr.sin_port = 0
+    addr.sin_addr.s_addr = inet_addr("127.0.0.1")
+    let bindResult = withUnsafePointer(to: &addr) {
+        $0.withMemoryRebound(to: sockaddr.self, capacity: 1) { pointer in
+            bind(fd, pointer, socklen_t(MemoryLayout<sockaddr_in>.size))
+        }
+    }
+    guard bindResult == 0 else { throw POSIXError(posixCode(errno)) }
+
+    var bound = sockaddr_in()
+    var length = socklen_t(MemoryLayout<sockaddr_in>.size)
+    let nameResult = withUnsafeMutablePointer(to: &bound) {
+        $0.withMemoryRebound(to: sockaddr.self, capacity: 1) { pointer in
+            getsockname(fd, pointer, &length)
+        }
+    }
+    guard nameResult == 0 else { throw POSIXError(posixCode(errno)) }
+    return UInt16(bigEndian: bound.sin_port)
+}
+
+private func readRawResponse(port: UInt16, timeout: TimeInterval) -> RawHTTPRead {
+    let deadline = Date().addingTimeInterval(timeout)
+    var fd: Int32 = -1
+    while Date() < deadline {
+        let attempt = socket(AF_INET, SOCK_STREAM, 0)
+        if attempt < 0 { break }
+        var addr = sockaddr_in()
+        addr.sin_len = UInt8(MemoryLayout<sockaddr_in>.size)
+        addr.sin_family = sa_family_t(AF_INET)
+        addr.sin_port = port.bigEndian
+        addr.sin_addr.s_addr = inet_addr("127.0.0.1")
+        let connected = withUnsafePointer(to: &addr) {
+            $0.withMemoryRebound(to: sockaddr.self, capacity: 1) { pointer in
+                Darwin.connect(attempt, pointer, socklen_t(MemoryLayout<sockaddr_in>.size))
+            }
+        }
+        if connected == 0 {
+            fd = attempt
+            break
+        }
+        close(attempt)
+        usleep(20_000)
+    }
+    guard fd >= 0 else { return RawHTTPRead(data: Data(), sawEOF: false) }
+    defer { close(fd) }
+
+    let request = Data("GET /burst HTTP/1.1\r\nHost: 127.0.0.1\r\nConnection: close\r\n\r\n".utf8)
+    let sent = request.withUnsafeBytes { buffer -> Int in
+        guard let base = buffer.baseAddress else { return -1 }
+        return Darwin.send(fd, base, buffer.count, Int32(0))
+    }
+    guard sent == request.count else { return RawHTTPRead(data: Data(), sawEOF: false) }
+
+    let flags = fcntl(fd, F_GETFL, Int32(0))
+    if flags >= 0 {
+        _ = fcntl(fd, F_SETFL, flags | O_NONBLOCK)
+    }
+
+    var received = Data()
+    var buffer = [UInt8](repeating: 0, count: 16_384)
+    var sawEOF = false
+    while Date() < deadline {
+        let count = buffer.withUnsafeMutableBytes { raw -> Int in
+            guard let base = raw.baseAddress else { return -1 }
+            return Darwin.read(fd, base, raw.count)
+        }
+        if count > 0 {
+            received.append(buffer, count: count)
+            continue
+        }
+        if count == 0 {
+            sawEOF = true
+            break
+        }
+        if errno == EAGAIN || errno == EWOULDBLOCK {
+            usleep(10_000)
+            continue
+        }
+        break
+    }
+    return RawHTTPRead(data: received, sawEOF: sawEOF)
+}
+
+private func posixCode(_ code: Int32) -> POSIXErrorCode {
+    code == 0 ? .EIO : POSIXErrorCode(rawValue: code)
+}
+
+private func waitUntil(timeout: TimeInterval, _ predicate: @escaping () -> Bool) async -> Bool {
+    let deadline = Date().addingTimeInterval(timeout)
+    while Date() < deadline {
+        if predicate() { return true }
+        try? await Task.sleep(nanoseconds: 20_000_000)
+    }
+    return predicate()
 }

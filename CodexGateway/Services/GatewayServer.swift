@@ -261,11 +261,11 @@ final class GatewayServer {
   /// Feed OpenAI Chat Completions SSE through `ResponsesStreamState` (same as third-party stream).
   /// Grok's converter already synthesizes `finish_reason` and `[DONE]`, so a dropped
   /// socket is not visible here and retries would only repeat a finished buffer.
-  private func emitChatSSEAsResponses(
+  func emitChatSSEAsResponses(
     chatSSE: String,
     requestedModel: String,
     namespaceMap: [String: String],
-    response: HTTPResponse
+    response: ResponsesEventSink
   ) {
     let lines = chatSSE.components(separatedBy: "\n")
     Task.detached(priority: .userInitiated) {

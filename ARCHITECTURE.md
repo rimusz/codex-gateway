@@ -152,7 +152,7 @@ codex-gateway/                    # GitHub repo (`rimusz/codex-gateway`; legacy 
 
 The gateway is intentionally minimal: only the routes Codex Desktop and the app itself call. Provider/model **management is done in-process** by the native Settings UI (`ModelCatalog` / `CodexConfig` directly) — there are **no HTTP mutation endpoints** and no browser dashboard, to avoid an unauthenticated local attack surface. The listener is **bound to loopback** (`NWParameters.requiredLocalEndpoint = 127.0.0.1:8765` in `LoopbackHTTPServer.start`), so it is never reachable from the LAN. WebSocket upgrades return 404 (voice removed).
 
-`LoopbackHTTPServer` waits for complete `Content-Length` and chunked bodies, decompresses `Content-Encoding: gzip` and `zstd` request bodies, and defers POST parsing when the body has not arrived yet. Codex Desktop sends large zstd-compressed JSON to `/v1/responses`. `HTTPRequest.forwardHeaders` strips `Content-Encoding` / `Content-Length` before upstream pass-through so decoded bodies are not double-decoded.
+`LoopbackHTTPServer` waits for complete `Content-Length` and chunked bodies, decompresses `Content-Encoding: gzip` and `zstd` request bodies, and defers POST parsing when the body has not arrived yet. Chunked responses retain `HTTPResponse` until every queued frame has been written and the connection is cancelled, so a handler that returns immediately after `endStream()` still delivers the terminal SSE burst, including `function_call` items and the terminating `0` chunk. A one-shot `send()` still cancels the connection after that single buffer. Codex Desktop sends large zstd-compressed JSON to `/v1/responses`. `HTTPRequest.forwardHeaders` strips `Content-Encoding` / `Content-Length` before upstream pass-through so decoded bodies are not double-decoded.
 
 ### Other OpenAI-compatible clients (e.g. Zero)
 
@@ -261,7 +261,7 @@ Unit tests in `Tests/CodexGatewayTests/`:
 - `TranslatorTests` — translation, namespace mapping, think stripping, Responses stream tool-call assembly (buffered until `finish_reason` / `[DONE]`)
 - `CodexConfigTests` — managed block stripping, ChatGPT `account_id` parse
 - `ModelCatalogTests` — provider/model API parsing, `requestedModelID`, unique unprefixed `findModel` (and native-slug protection)
-- `LoopbackHTTPServerTests` — chunked bodies, `relayChatStream` (dropped tool-call retry, retries exhausted, text forwarded before stream end, no retry after text), and `GatewayServer` dummy/`passthroughAuthorization` / ChatGPT backend helpers
+- `LoopbackHTTPServerTests` — chunked bodies, a real-socket chunked SSE burst that must arrive after the handler returns, `relayChatStream` (dropped tool-call retry, retries exhausted, text forwarded before stream end, no retry after text), Grok OAuth `emitChatSSEAsResponses` with retries disabled, and `GatewayServer` dummy/`passthroughAuthorization` / ChatGPT backend helpers
 - `ProviderPresetsTests` — preset definitions (incl. Anthropic Console + Claude Code), Grok OAuth install seed, Anthropic / Claude Code auth headers
 - `ClaudeCodeSessionTests` — credentials fixture parse/probe/status (fake `sk-ant-oat-*` only)
 - `CursorBridgeTests` — managed bridge port 18788, catalog filter, Node TLS, runtime helpers
