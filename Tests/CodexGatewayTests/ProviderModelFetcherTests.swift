@@ -16,6 +16,10 @@ final class ProviderModelFetcherTests: XCTestCase {
             ProviderModelFetcher.modelsURL(for: "https://api.anthropic.com/v1")?.absoluteString,
             "https://api.anthropic.com/v1/models"
         )
+        XCTAssertEqual(
+            ProviderModelFetcher.modelsURL(for: "https://generativelanguage.googleapis.com/v1beta/openai/")?.absoluteString,
+            "https://generativelanguage.googleapis.com/v1beta/openai/models"
+        )
     }
 
     func testModelsRequestUsesAnthropicAuthHeaders() throws {
@@ -126,6 +130,49 @@ final class ProviderModelFetcherTests: XCTestCase {
         XCTAssertEqual(models.map(\.id), ["claude-haiku-4-5", "claude-sonnet-5"])
         XCTAssertEqual(models.first?.ownedBy, "Claude Haiku 4.5")
         XCTAssertEqual(models.last?.ownedBy, "Claude Sonnet 5")
+    }
+
+    func testParseStripsGeminiModelsResourcePrefix() throws {
+        let data = """
+        {
+          "object": "list",
+          "data": [
+            { "id": "models/gemini-2.5-flash", "owned_by": "google" },
+            { "id": "models/gemini-3.8-flash", "owned_by": "google" },
+            { "id": "gemini-2.5-flash", "owned_by": "google" }
+          ]
+        }
+        """.data(using: .utf8)!
+
+        XCTAssertTrue(
+            ProviderModelFetcher.stripsModelsResourcePrefix(
+                baseURL: "https://generativelanguage.googleapis.com/v1beta/openai"
+            )
+        )
+        XCTAssertFalse(ProviderModelFetcher.stripsModelsResourcePrefix(baseURL: "https://api.deepseek.com"))
+        XCTAssertEqual(
+            ProviderModelFetcher.strippingModelsResourcePrefix(from: "models/gemini-2.5-flash"),
+            "gemini-2.5-flash"
+        )
+
+        let stripped = try XCTUnwrap(ProviderModelFetcher.parse(data, stripModelsPrefix: true))
+        XCTAssertEqual(stripped.map(\.id), ["gemini-2.5-flash", "gemini-3.8-flash"])
+        XCTAssertEqual(stripped.first?.ownedBy, "google")
+
+        let raw = try XCTUnwrap(ProviderModelFetcher.parse(data))
+        XCTAssertEqual(
+            raw.map(\.id),
+            ["gemini-2.5-flash", "models/gemini-2.5-flash", "models/gemini-3.8-flash"]
+        )
+
+        let provider = ProviderPreset.gemini.providerConfig(apiKey: "test-key")
+        let catalog = ModelCatalog.catalogModels(
+            from: [FetchedModel(id: "gemini-2.5-flash", ownedBy: "google")],
+            for: provider
+        )
+        XCTAssertEqual(catalog.first?.slug, "gemini/gemini-2.5-flash")
+        XCTAssertEqual(catalog.first?.model, "gemini-2.5-flash")
+        XCTAssertEqual(catalog.first?.display_name, "Gemini 2.5 Flash")
     }
 
     func testParseBareArrayAndModelFallback() throws {

@@ -9,6 +9,7 @@ enum ProviderPreset: String, CaseIterable, Identifiable {
   case clinePass
   case minimax
   case deepseek
+  case gemini
   case anthropic
   case claudeCode
   case xai
@@ -28,6 +29,7 @@ enum ProviderPreset: String, CaseIterable, Identifiable {
     case .clinePass: return "Cline Pass"
     case .minimax: return "MiniMax"
     case .deepseek: return "DeepSeek"
+    case .gemini: return "Google Gemini"
     case .anthropic: return "Anthropic (Claude)"
     case .claudeCode: return "Anthropic (Claude Code)"
     case .xai: return "xAI Grok (API)"
@@ -47,6 +49,7 @@ enum ProviderPreset: String, CaseIterable, Identifiable {
     case .clinePass: return "clinepass"
     case .minimax: return "minimax"
     case .deepseek: return "deepseek"
+    case .gemini: return "gemini"
     case .anthropic: return "anthropic"
     case .claudeCode: return "claude-code"
     case .xai: return "xai"
@@ -66,6 +69,7 @@ enum ProviderPreset: String, CaseIterable, Identifiable {
     case .clinePass: return "https://api.cline.bot/api/v1"
     case .minimax: return "https://api.minimax.io/v1"
     case .deepseek: return "https://api.deepseek.com"
+    case .gemini: return "https://generativelanguage.googleapis.com/v1beta/openai"
     case .anthropic: return "https://api.anthropic.com/v1"
     case .claudeCode: return "https://api.anthropic.com/v1"
     case .xai: return "https://api.x.ai/v1"
@@ -126,6 +130,7 @@ enum ProviderPreset: String, CaseIterable, Identifiable {
     case .xiaomiMiMo: return "mimo-v2.5-pro"
     case .minimax: return "minimax-m2.5"
     case .deepseek: return "deepseek-v4-pro"
+    case .gemini: return "gemini-3.8-flash"
     case .anthropic: return "claude-sonnet-5"
     case .claudeCode: return "claude-sonnet-5"
     case .xai: return "grok-4"
@@ -176,6 +181,14 @@ enum ProviderPreset: String, CaseIterable, Identifiable {
   var catalogDocumentationURL: URL? {
     switch self {
     case .clinePass: return ClinePassCatalog.documentationURL
+    default: return nil
+    }
+  }
+
+  /// Page where the user creates an API key, when the preset has a known one.
+  var apiKeyPageURL: URL? {
+    switch self {
+    case .gemini: return URL(string: "https://aistudio.google.com/apikey")
     default: return nil
     }
   }
@@ -237,6 +250,7 @@ enum ProviderPreset: String, CaseIterable, Identifiable {
     case .xiaomiMiMo: return "Xiaomi MiMo V2.5 Pro"
     case .minimax: return "MiniMax M2.5"
     case .deepseek: return "DeepSeek V4 Pro"
+    case .gemini: return "Gemini 3.8 Flash"
     case .anthropic: return "Anthropic Claude Sonnet 5 (API)"
     case .claudeCode: return "Anthropic Claude Sonnet 5 (OAuth)"
     case .xai: return "xAI Grok 4 (API)"

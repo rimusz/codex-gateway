@@ -423,6 +423,213 @@ final class TranslatorTests: XCTestCase {
         XCTAssertFalse(state.finishIfComplete(upstreamFailed: false, write: write))
         XCTAssertFalse(events.contains { ($0["type"] as? String) == "response.completed" })
     }
+
+    func testNonStreamedGeminiThoughtSignatureRoundTrips() throws {
+        let store = ToolCallExtraContentStore()
+        let signature = "sig/with+slash=\"quoted\"\\end-\u{00e9}"
+        let payload: [String: Any] = [
+            "choices": [[
+                "message": [
+                    "content": "",
+                    "tool_calls": [[
+                        "id": "call_gemini",
+                        "type": "function",
+                        "extra_content": ["google": ["thought_signature": signature]],
+                        "function": ["name": "shell", "arguments": "{\"cmd\":\"ls\"}"]
+                    ]]
+                ]
+            ]]
+        ]
+        let response = Translator.chatCompletionToResponse(
+            payload: payload,
+            requestedModel: "gemini/gemini-3.8-flash",
+            namespaceMap: [:],
+            providerID: "gemini",
+            extraContentStore: store
+        )
+        let output = response["output"] as? [[String: Any]] ?? []
+        let sentToCodex = output.first { ($0["type"] as? String) == "function_call" }
+        XCTAssertEqual(sentToCodex?["call_id"] as? String, "call_gemini")
+        XCTAssertNil(sentToCodex?["extra_content"])
+
+        let body = followUpResponsesBody(calls: [
+            (id: "call_gemini", name: "shell", arguments: "{\"cmd\":\"ls\"}")
+        ])
+        let gemini = try encodedChatMessages(Translator.responsesToChat(
+            body: body,
+            upstreamModel: "gemini-3.8-flash",
+            sessionId: nil,
+            providerID: "gemini",
+            extraContentStore: store
+        ))
+        let call = try XCTUnwrap(assistantToolCall(gemini, id: "call_gemini"))
+        XCTAssertEqual(thoughtSignature(call), signature)
+        XCTAssertEqual((call["function"] as? [String: Any])?["arguments"] as? String, "{\"cmd\":\"ls\"}")
+
+        let other = try encodedChatMessages(Translator.responsesToChat(
+            body: body,
+            upstreamModel: "deepseek-chat",
+            sessionId: nil,
+            providerID: "deepseek",
+            extraContentStore: store
+        ))
+        let otherCall = try XCTUnwrap(assistantToolCall(other, id: "call_gemini"))
+        XCTAssertNil(otherCall["extra_content"])
+
+        var echoed = body
+        var input = echoed["input"] as? [[String: Any]] ?? []
+        input[1]["extra_content"] = ["google": ["thought_signature": "echoed-from-codex"]]
+        echoed["input"] = input
+        let leaked = try encodedChatMessages(Translator.responsesToChat(
+            body: echoed,
+            upstreamModel: "openai/gpt-4o",
+            sessionId: nil,
+            providerID: "openrouter",
+            extraContentStore: store
+        ))
+        XCTAssertNil(try XCTUnwrap(assistantToolCall(leaked, id: "call_gemini"))["extra_content"])
+    }
+
+    func testStreamedGeminiThoughtSignatureRoundTrips() throws {
+        let store = ToolCallExtraContentStore()
+        let signature = "stream-sig/with+slash=\"quoted\"\\end-\u{00e9}"
+        let state = ResponsesStreamState(
+            model: "gemini/gemini-3.8-flash",
+            namespaceMap: [:],
+            providerID: "gemini",
+            extraContentStore: store
+        )
+        var events: [[String: Any]] = []
+        let write: ([String: Any]) -> Void = { events.append($0) }
+
+        state.ingestUpstreamLine(dataLine(toolDelta(
+            index: 0,
+            id: "call_dropped",
+            name: "shell",
+            arguments: "{}",
+            extraContent: ["google": ["thought_signature": "dropped-sig"]]
+        )), write: write)
+        state.discardAttempt()
+
+        state.ingestUpstreamLine(dataLine(toolDelta(
+            index: 0,
+            id: "call_kept",
+            name: "shell",
+            extraContent: ["google": ["thought_signature": signature]]
+        )), write: write)
+        state.ingestUpstreamLine(dataLine(toolDelta(index: 0, arguments: "{\"cmd\":\"pwd\"}")), write: write)
+        state.ingestUpstreamLine("data: [DONE]", write: write)
+        XCTAssertTrue(state.finishIfComplete(upstreamFailed: false, write: write))
+
+        XCTAssertNil(store.extraContent(providerID: "gemini", callID: "call_dropped"))
+        let item = functionCallDones(events).first { ($0["call_id"] as? String) == "call_kept" }
+        XCTAssertEqual(item?["arguments"] as? String, "{\"cmd\":\"pwd\"}")
+        XCTAssertNil(item?["extra_content"])
+
+        let messages = try encodedChatMessages(Translator.responsesToChat(
+            body: followUpResponsesBody(calls: [
+                (id: "call_kept", name: "shell", arguments: "{\"cmd\":\"pwd\"}")
+            ]),
+            upstreamModel: "gemini-3.8-flash",
+            sessionId: nil,
+            providerID: "gemini",
+            extraContentStore: store
+        ))
+        XCTAssertEqual(thoughtSignature(try XCTUnwrap(assistantToolCall(messages, id: "call_kept"))), signature)
+    }
+
+    func testParallelGeminiThoughtSignatureStaysOnFirstCall() throws {
+        let signature = "parallel-first-only/sig+=\u{00e9}"
+        let store = ToolCallExtraContentStore()
+        let payload: [String: Any] = [
+            "choices": [[
+                "message": [
+                    "content": "",
+                    "tool_calls": [
+                        [
+                            "id": "call_first",
+                            "type": "function",
+                            "extra_content": ["google": ["thought_signature": signature]],
+                            "function": ["name": "shell", "arguments": "{\"cmd\":\"ls\"}"]
+                        ],
+                        [
+                            "id": "call_second",
+                            "type": "function",
+                            "function": ["name": "read_file", "arguments": "{\"path\":\"a.txt\"}"]
+                        ]
+                    ]
+                ]
+            ]]
+        ]
+        _ = Translator.chatCompletionToResponse(
+            payload: payload,
+            requestedModel: "gemini/gemini-3.8-flash",
+            namespaceMap: [:],
+            providerID: "gemini",
+            extraContentStore: store
+        )
+        let nonStream = try encodedChatMessages(Translator.responsesToChat(
+            body: followUpResponsesBody(calls: [
+                (id: "call_first", name: "shell", arguments: "{\"cmd\":\"ls\"}"),
+                (id: "call_second", name: "read_file", arguments: "{\"path\":\"a.txt\"}")
+            ]),
+            upstreamModel: "gemini-3.8-flash",
+            sessionId: nil,
+            providerID: "gemini",
+            extraContentStore: store
+        ))
+        XCTAssertEqual(thoughtSignature(try XCTUnwrap(assistantToolCall(nonStream, id: "call_first"))), signature)
+        XCTAssertNil(try XCTUnwrap(assistantToolCall(nonStream, id: "call_second"))["extra_content"])
+
+        let streamStore = ToolCallExtraContentStore()
+        let state = ResponsesStreamState(
+            model: "gemini/gemini-3.8-flash",
+            namespaceMap: [:],
+            providerID: "gemini",
+            extraContentStore: streamStore
+        )
+        var events: [[String: Any]] = []
+        let write: ([String: Any]) -> Void = { events.append($0) }
+        let firstChunk: [String: Any] = [
+            "choices": [[
+                "delta": [
+                    "tool_calls": [
+                        [
+                            "index": 0,
+                            "id": "call_s0",
+                            "extra_content": ["google": ["thought_signature": signature]],
+                            "function": ["name": "shell", "arguments": ""]
+                        ],
+                        [
+                            "index": 1,
+                            "id": "call_s1",
+                            "function": ["name": "read_file", "arguments": ""]
+                        ]
+                    ]
+                ]
+            ]]
+        ]
+        state.ingestUpstreamLine(dataLine(firstChunk), write: write)
+        state.ingestUpstreamLine(dataLine(toolDelta(index: 0, arguments: "{\"cmd\":\"ls\"}")), write: write)
+        state.ingestUpstreamLine(dataLine(toolDelta(index: 1, arguments: "{\"path\":\"a.txt\"}")), write: write)
+        state.ingestUpstreamLine(dataLine(["choices": [["finish_reason": "tool_calls", "delta": [:]]]]), write: write)
+        XCTAssertTrue(state.finishIfComplete(upstreamFailed: false, write: write))
+        XCTAssertEqual(functionCallDones(events).count, 2)
+        XCTAssertNil(functionCallDones(events).first { ($0["call_id"] as? String) == "call_s0" }?["extra_content"])
+
+        let streamed = try encodedChatMessages(Translator.responsesToChat(
+            body: followUpResponsesBody(calls: [
+                (id: "call_s0", name: "shell", arguments: "{\"cmd\":\"ls\"}"),
+                (id: "call_s1", name: "read_file", arguments: "{\"path\":\"a.txt\"}")
+            ]),
+            upstreamModel: "gemini-3.8-flash",
+            sessionId: nil,
+            providerID: "gemini",
+            extraContentStore: streamStore
+        ))
+        XCTAssertEqual(thoughtSignature(try XCTUnwrap(assistantToolCall(streamed, id: "call_s0"))), signature)
+        XCTAssertNil(try XCTUnwrap(assistantToolCall(streamed, id: "call_s1"))["extra_content"])
+    }
 }
 
 private func dataLine(_ object: [String: Any], spaced: Bool = true) -> String {
@@ -431,9 +638,17 @@ private func dataLine(_ object: [String: Any], spaced: Bool = true) -> String {
     return spaced ? "data: \(json)" : "data:\(json)"
 }
 
-private func toolDelta(index: Int, id: String? = nil, name: String? = nil, arguments: String? = nil, finish: String? = nil) -> [String: Any] {
+private func toolDelta(
+    index: Int,
+    id: String? = nil,
+    name: String? = nil,
+    arguments: String? = nil,
+    finish: String? = nil,
+    extraContent: [String: Any]? = nil
+) -> [String: Any] {
     var call: [String: Any] = ["index": index]
     if let id { call["id"] = id }
+    if let extraContent { call["extra_content"] = extraContent }
     var function: [String: Any] = [:]
     if let name { function["name"] = name }
     if let arguments { function["arguments"] = arguments }
@@ -460,4 +675,48 @@ private func functionCallDones(_ events: [[String: Any]]) -> [[String: Any]] {
         if let outputIndex = event["output_index"] { copy["output_index"] = outputIndex }
         return copy
     }
+}
+
+private func followUpResponsesBody(calls: [(id: String, name: String, arguments: String)]) -> [String: Any] {
+    var input: [[String: Any]] = [
+        ["type": "message", "role": "user", "content": "run it"]
+    ]
+    for call in calls {
+        input.append([
+            "type": "function_call",
+            "call_id": call.id,
+            "name": call.name,
+            "arguments": call.arguments
+        ])
+        input.append([
+            "type": "function_call_output",
+            "call_id": call.id,
+            "output": "ok"
+        ])
+    }
+    input.append(["type": "message", "role": "user", "content": "next"])
+    return ["input": input]
+}
+
+private func encodedChatMessages(_ chat: [String: Any]) throws -> [[String: Any]] {
+    let data = try JSONSerialization.data(withJSONObject: chat)
+    let parsed = try JSONSerialization.jsonObject(with: data) as? [String: Any]
+    return parsed?["messages"] as? [[String: Any]] ?? []
+}
+
+private func assistantToolCall(_ messages: [[String: Any]], id: String) -> [String: Any]? {
+    for message in messages {
+        guard (message["role"] as? String) == "assistant",
+              let calls = message["tool_calls"] as? [[String: Any]] else { continue }
+        if let call = calls.first(where: { ($0["id"] as? String) == id }) {
+            return call
+        }
+    }
+    return nil
+}
+
+private func thoughtSignature(_ call: [String: Any]) -> String? {
+    let extra = call["extra_content"] as? [String: Any]
+    let google = extra?["google"] as? [String: Any]
+    return google?["thought_signature"] as? String
 }

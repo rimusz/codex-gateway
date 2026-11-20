@@ -1120,6 +1120,10 @@ struct SettingsView: View {
             Text("Anthropic Console API key. For Claude Code login, install Anthropic (Claude Code) instead — do not paste an OAuth token here.")
               .font(.caption)
               .foregroundStyle(.secondary)
+          } else if let keyPage = preset.apiKeyPageURL {
+            Text("Get an API key at \(keyPage.absoluteString). Your key is stored locally in ~/.codexgateway/providers.json.")
+              .font(.caption)
+              .foregroundStyle(.secondary)
           } else {
             Text("Your key is stored locally in ~/.codexgateway/providers.json.")
               .font(.caption)

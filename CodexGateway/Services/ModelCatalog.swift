@@ -573,6 +573,10 @@ final class ModelCatalog {
     if id == ProviderPreset.anthropic.providerID || id == ProviderPreset.claudeCode.providerID {
       return "Anthropic"
     }
+    // "Google Gemini" plus a `gemini-*` id would read "Google Gemini Gemini …".
+    if id == ProviderPreset.gemini.providerID {
+      return "Gemini"
+    }
     let label: String
     if let preset = ProviderPreset.matching(providerID: id) {
       label = preset.displayName
