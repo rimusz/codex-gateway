@@ -9,6 +9,8 @@ enum ProviderAuthKind: String, Codable, Sendable {
   case anthropic = "anthropic"
   /// Claude Code / claude.ai OAuth: Bearer + `anthropic-beta: oauth-2025-04-20` (no `x-api-key`).
   case claudeCode = "claude_code"
+  /// Unofficial Antigravity CLI (`agy`) Google sign-in. Cloud Code, not an API key.
+  case geminiAgyOAuth = "gemini_agy_oauth"
 }
 
 /// Shared upstream auth headers. Anthropic Console keys use `x-api-key` +
@@ -276,6 +278,8 @@ extension ProviderConfig {
   var usesAnthropicAuth: Bool { resolvedAuthKind == .anthropic }
 
   var usesClaudeCodeAuth: Bool { resolvedAuthKind == .claudeCode }
+
+  var usesGeminiAgyOAuth: Bool { resolvedAuthKind == .geminiAgyOAuth }
 
   var usesCursorBridge: Bool {
     resolvedAuthKind == .cursorBridge || name == ProviderPreset.cursor.providerID

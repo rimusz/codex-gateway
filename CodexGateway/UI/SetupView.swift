@@ -164,6 +164,14 @@ struct SetupView: View {
         Button(SetupCopy.recheck) { store.refreshGrokStatus() }
           .controlSize(.small)
       }
+    } else if preset.authKind == .geminiAgyOAuth {
+      Text(store.geminiAgyStatus.configured ? "agy Google session connected." : (store.geminiAgyStatus.setupHint ?? "Not signed in"))
+        .foregroundStyle(store.geminiAgyStatus.configured ? AnyShapeStyle(.primary) : AnyShapeStyle(Color.orange))
+      Text("Unofficial. Install Gemini with no API key, run `agy` once on this Mac, and finish Google sign-in. Click Allow if the Keychain asks. This uses Google AI Pro quota, not an API key, and can break if Google changes Cloud Code or Keychain storage.")
+        .font(.caption)
+        .foregroundStyle(.secondary)
+      Button(SetupCopy.recheck) { store.refreshGeminiAgyStatus() }
+        .controlSize(.small)
     } else if preset.authKind == .claudeCode {
       Text(store.claudeCodeStatus.configured ? "Claude Code login connected." : (store.claudeCodeStatus.setupHint ?? "Not signed in"))
         .foregroundStyle(store.claudeCodeStatus.configured ? AnyShapeStyle(.primary) : AnyShapeStyle(Color.orange))
@@ -423,7 +431,7 @@ extension ProviderPreset {
     case .claudeCode:
       return "Uses Claude Code login · no key stored"
     case .gemini:
-      return "API key from aistudio.google.com/apikey"
+      return "Unofficial · agy Google sign-in · Google AI Pro quota · no API key"
     default:
       return "OpenAI-compatible API key"
     }

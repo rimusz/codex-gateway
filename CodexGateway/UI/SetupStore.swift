@@ -22,6 +22,14 @@ final class SetupStore: ObservableObject {
   @Published var cursorNodeProbe = CursorBridge.NodeRequirement.snapshot(binaryPath: nil, versionDisplay: "")
   @Published var cursorBridgeStatus = CursorBridgeRuntime.status
   @Published var grokStatus = GrokOAuthSession.status()
+  @Published var geminiAgyStatus = GeminiAgySession.Status(
+    configured: false,
+    source: "",
+    setupHint: GeminiAgySession.signInMessage,
+    access: .notSignedIn,
+    osStatus: nil,
+    osStatusName: nil
+  )
   @Published var claudeCodeStatus = ClaudeCodeSession.Status.idle()
 
   let settings = SettingsStore()
@@ -64,6 +72,9 @@ final class SetupStore: ObservableObject {
       }
       if preset.authKind == .claudeCode {
         refreshClaudeCodeStatus()
+      }
+      if preset.authKind == .geminiAgyOAuth {
+        refreshGeminiAgyStatus()
       }
     }
   }
@@ -137,6 +148,10 @@ final class SetupStore: ObservableObject {
 
   func refreshGrokStatus() {
     grokStatus = GrokOAuthSession.status()
+  }
+
+  func refreshGeminiAgyStatus() {
+    geminiAgyStatus = GeminiAgySession.status()
   }
 
   func refreshClaudeCodeStatus() {
@@ -270,7 +285,7 @@ final class SetupStore: ObservableObject {
       try settings.installCursorPreset(apiKey: key, seedModels: false, patchConfig: false)
       return
     }
-    if preset.authKind == .grokOAuth || preset.authKind == .claudeCode {
+    if preset.authKind == .grokOAuth || preset.authKind == .claudeCode || preset.authKind == .geminiAgyOAuth {
       try settings.installPreset(preset, apiKey: "", seedModels: false, patchConfig: false)
       return
     }
@@ -316,7 +331,10 @@ final class SetupStore: ObservableObject {
         guard flow.isCurrentFetch(generation) else { return }
         settings.saveFetchedModels(fetched, for: provider.name)
         let catalog = ModelCatalog.catalogModels(from: fetched, for: provider)
-        applyCatalog(catalog, suggested: selectedPreset?.suggestedModel)
+        let suggested = provider.usesGeminiAgyOAuth
+          ? GeminiAgyClient.preferredModelID(from: fetched)
+          : selectedPreset?.suggestedModel
+        applyCatalog(catalog, suggested: suggested)
       } catch is CancellationError {
         return
       } catch {

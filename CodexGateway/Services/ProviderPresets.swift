@@ -69,7 +69,7 @@ enum ProviderPreset: String, CaseIterable, Identifiable {
     case .clinePass: return "https://api.cline.bot/api/v1"
     case .minimax: return "https://api.minimax.io/v1"
     case .deepseek: return "https://api.deepseek.com"
-    case .gemini: return "https://generativelanguage.googleapis.com/v1beta/openai"
+    case .gemini: return GeminiAgyClient.defaultHost
     case .anthropic: return "https://api.anthropic.com/v1"
     case .claudeCode: return "https://api.anthropic.com/v1"
     case .xai: return "https://api.x.ai/v1"
@@ -91,7 +91,7 @@ enum ProviderPreset: String, CaseIterable, Identifiable {
 
   var requiresAPIKeyPrompt: Bool {
     switch self {
-    case .ollama, .grokOAuth, .claudeCode: return false
+    case .ollama, .grokOAuth, .claudeCode, .gemini: return false
     default: return true
     }
   }
@@ -102,13 +102,14 @@ enum ProviderPreset: String, CaseIterable, Identifiable {
     case .cursor: return .cursorBridge
     case .anthropic: return .anthropic
     case .claudeCode: return .claudeCode
+    case .gemini: return .geminiAgyOAuth
     default: return .apiKey
     }
   }
 
   /// Settings install sheet: API-key presets, Grok OAuth, and Claude Code login.
   var showsInstallSheet: Bool {
-    requiresAPIKeyPrompt || authKind == .grokOAuth || authKind == .claudeCode
+    requiresAPIKeyPrompt || authKind == .grokOAuth || authKind == .claudeCode || authKind == .geminiAgyOAuth
   }
 
   /// True when this preset is the CodexGateway-managed Cursor sidecar (local secret + process lifecycle).
@@ -130,7 +131,7 @@ enum ProviderPreset: String, CaseIterable, Identifiable {
     case .xiaomiMiMo: return "mimo-v2.5-pro"
     case .minimax: return "minimax-m2.5"
     case .deepseek: return "deepseek-v4-pro"
-    case .gemini: return "gemini-3.8-flash"
+    case .gemini: return nil
     case .anthropic: return "claude-sonnet-5"
     case .claudeCode: return "claude-sonnet-5"
     case .xai: return "grok-4"
@@ -145,7 +146,7 @@ enum ProviderPreset: String, CaseIterable, Identifiable {
   /// Whether CodexGateway can discover models via `GET {base_url}/models` with the provider API key.
   var supportsModelListingFetch: Bool {
     switch self {
-    case .clinePass, .grokOAuth:
+    case .clinePass, .grokOAuth, .gemini:
       return false
     default:
       return true
@@ -160,6 +161,14 @@ enum ProviderPreset: String, CaseIterable, Identifiable {
     }
   }
 
+  /// Whether models come from Cloud Code `fetchAvailableModels` using the `agy` session.
+  var supportsGeminiAgyModelCatalog: Bool {
+    switch self {
+    case .gemini: return true
+    default: return false
+    }
+  }
+
   /// Whether models come from the Grok CLI OAuth catalog (`GET …/models-v2` with `~/.grok` session).
   var supportsGrokOAuthModelCatalog: Bool {
     switch self {
@@ -170,7 +179,7 @@ enum ProviderPreset: String, CaseIterable, Identifiable {
 
   /// True when the provider exposes a fetchable model list (OpenAI `/models`, Cline feed, or Grok OAuth catalog).
   var canFetchModels: Bool {
-    supportsModelListingFetch || supportsLiveCatalogRefresh || supportsGrokOAuthModelCatalog
+    supportsModelListingFetch || supportsLiveCatalogRefresh || supportsGrokOAuthModelCatalog || supportsGeminiAgyModelCatalog
   }
 
   /// Static catalog fallback (no live fetch). Unused while every preset either fetches or has a suggested seed.
@@ -186,12 +195,7 @@ enum ProviderPreset: String, CaseIterable, Identifiable {
   }
 
   /// Page where the user creates an API key, when the preset has a known one.
-  var apiKeyPageURL: URL? {
-    switch self {
-    case .gemini: return URL(string: "https://aistudio.google.com/apikey")
-    default: return nil
-    }
-  }
+  var apiKeyPageURL: URL? { nil }
 
   func providerConfig(apiKey: String) -> ProviderConfig {
     if self == .cursor {
@@ -204,7 +208,7 @@ enum ProviderPreset: String, CaseIterable, Identifiable {
         auth_kind: ProviderAuthKind.cursorBridge.rawValue
       )
     }
-    if authKind == .claudeCode {
+    if authKind == .claudeCode || authKind == .geminiAgyOAuth {
       return ProviderConfig(
         name: providerID,
         display_name: displayName,
@@ -250,7 +254,7 @@ enum ProviderPreset: String, CaseIterable, Identifiable {
     case .xiaomiMiMo: return "Xiaomi MiMo V2.5 Pro"
     case .minimax: return "MiniMax M2.5"
     case .deepseek: return "DeepSeek V4 Pro"
-    case .gemini: return "Gemini 3.8 Flash"
+    case .gemini: return "Gemini"
     case .anthropic: return "Anthropic Claude Sonnet 5 (API)"
     case .claudeCode: return "Anthropic Claude Sonnet 5 (OAuth)"
     case .xai: return "xAI Grok 4 (API)"
