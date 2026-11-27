@@ -198,9 +198,64 @@ enum GeminiAgySession {
     }
   }
 
+  /// zalando/go-keyring stores a string, not raw JSON. Read-only: never rewrite the item.
+  static func unwrapStoredPayload(_ data: Data) -> Data? {
+    guard let text = String(data: data, encoding: .utf8) else { return data }
+    let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+    if let suffix = storedSuffix(trimmed, prefix: "go-keyring-base64:") {
+      guard let decoded = Data(base64Encoded: suffix) else {
+        logUnwrap(kind: "base64", bytes: nil)
+        return nil
+      }
+      logUnwrap(kind: "base64", bytes: decoded.count)
+      return decoded
+    }
+    if let suffix = storedSuffix(trimmed, prefix: "go-keyring-encoded:") {
+      guard let decoded = hexDecode(suffix) else {
+        logUnwrap(kind: "hex", bytes: nil)
+        return nil
+      }
+      logUnwrap(kind: "hex", bytes: decoded.count)
+      return decoded
+    }
+    return data
+  }
+
+  private static func storedSuffix(_ text: String, prefix: String) -> String? {
+    guard text.hasPrefix(prefix) else { return nil }
+    return String(text.dropFirst(prefix.count))
+  }
+
+  private static func hexDecode(_ text: String) -> Data? {
+    let chars = Array(text.utf8)
+    guard !chars.isEmpty, chars.count % 2 == 0 else { return nil }
+    var out = Data(capacity: chars.count / 2)
+    var index = 0
+    func nibble(_ byte: UInt8) -> UInt8? {
+      switch byte {
+      case UInt8(ascii: "0")...UInt8(ascii: "9"): return byte - UInt8(ascii: "0")
+      case UInt8(ascii: "a")...UInt8(ascii: "f"): return byte - UInt8(ascii: "a") + 10
+      case UInt8(ascii: "A")...UInt8(ascii: "F"): return byte - UInt8(ascii: "A") + 10
+      default: return nil
+      }
+    }
+    while index < chars.count {
+      guard let hi = nibble(chars[index]), let lo = nibble(chars[index + 1]) else { return nil }
+      out.append((hi << 4) | lo)
+      index += 2
+    }
+    return out
+  }
+
+  private static func logUnwrap(kind: String, bytes: Int?) {
+    let size = bytes.map(String.init) ?? "failed"
+    fputs("Gemini Keychain unwrap kind=\(kind) bytes=\(size)\n", stderr)
+  }
+
   static func parseSession(_ data: Data?) -> Session? {
     guard let data, !data.isEmpty,
-          let root = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+          let payload = unwrapStoredPayload(data), !payload.isEmpty,
+          let root = try? JSONSerialization.jsonObject(with: payload) as? [String: Any] else {
       return nil
     }
     let token = root["token"] as? [String: Any] ?? root

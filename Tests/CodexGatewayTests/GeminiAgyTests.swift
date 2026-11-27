@@ -24,6 +24,40 @@ final class GeminiAgyTests: CodexGatewayTestCase {
     XCTAssertNil(GeminiAgySession.parseSession(nil))
   }
 
+  func testGoKeyringWrappedPayloadParsesAndInvalidWrapperIsNil() {
+    let future = "2099-01-01T00:00:00Z"
+    let json = """
+    { "auth_method": "google", "token": { "access_token": "access-a", "expiry": "\(future)" } }
+    """
+    let raw = Data(json.utf8)
+    let base64 = Data(("go-keyring-base64:" + raw.base64EncodedString()).utf8)
+    let hex = Data(("go-keyring-encoded:" + raw.map { String(format: "%02x", $0) }.joined()).utf8)
+
+    let fromBase64 = GeminiAgySession.parseSession(base64)
+    XCTAssertEqual(fromBase64?.accessToken, "access-a")
+    XCTAssertEqual(fromBase64?.authMethod, "google")
+    XCTAssertFalse(GeminiAgySession.isExpired(fromBase64!, now: Date(timeIntervalSince1970: 1_700_000_000)))
+
+    let wrappedStatus = GeminiAgySession.status(readKeychain: {
+      GeminiAgySession.KeychainItem(status: errSecSuccess, data: base64, elapsed: 0)
+    }, fileURL: URL(fileURLWithPath: "/tmp/does-not-exist-agy-token"))
+    XCTAssertEqual(wrappedStatus.access, .available)
+
+    let fromHex = GeminiAgySession.parseSession(hex)
+    XCTAssertEqual(fromHex?.accessToken, "access-a")
+    XCTAssertEqual(fromHex?.authMethod, "google")
+
+    XCTAssertEqual(GeminiAgySession.parseSession(raw)?.accessToken, "access-a")
+    XCTAssertNil(GeminiAgySession.parseSession(Data("go-keyring-base64:!!!!".utf8)))
+    XCTAssertNil(GeminiAgySession.parseSession(Data("go-keyring-encoded:zz".utf8)))
+    XCTAssertNil(GeminiAgySession.parseSession(Data("go-keyring-encoded:abc".utf8)))
+
+    let bad = GeminiAgySession.status(readKeychain: {
+      GeminiAgySession.KeychainItem(status: errSecSuccess, data: Data("go-keyring-base64:!!!!".utf8), elapsed: 0)
+    }, fileURL: URL(fileURLWithPath: "/tmp/does-not-exist-agy-token"))
+    XCTAssertEqual(bad.access, .notSignedIn)
+  }
+
   func testFileSourceAndRefreshViaFakeAgyModels() throws {
     let dir = URL(fileURLWithPath: Paths.configDir).appendingPathComponent("agy-test")
     try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
