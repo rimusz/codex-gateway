@@ -109,10 +109,11 @@ enum GeminiAgyClient {
     ["metadata": ["ideType": "ANTIGRAVITY"]]
   }
 
+  /// FetchAvailableModelsRequest has project, request id, entitlement, and location.
+  /// It has no metadata field; that belongs only on LoadCodeAssistRequest.
   static func fetchAvailableModelsBody(project: String?) -> [String: Any] {
-    var body: [String: Any] = loadCodeAssistBody()
-    if let project, !project.isEmpty { body["project"] = project }
-    return body
+    guard let project, !project.isEmpty else { return [:] }
+    return ["project": project]
   }
 
   /// OpenAI chat body → Cloud Code `generateContent` JSON. Throws when a replayed function call has no signature.

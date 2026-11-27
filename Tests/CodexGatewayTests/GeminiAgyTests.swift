@@ -245,6 +245,43 @@ final class GeminiAgyTests: CodexGatewayTestCase {
     XCTAssertEqual(found?.path, binary.path)
   }
 
+  func testFetchAvailableModelsBodyOmitsMetadata() throws {
+    let empty = GeminiAgyClient.fetchAvailableModelsBody(project: nil)
+    XCTAssertTrue(empty.isEmpty)
+    XCTAssertNil(empty["metadata"])
+    let blank = GeminiAgyClient.fetchAvailableModelsBody(project: "")
+    XCTAssertTrue(blank.isEmpty)
+    XCTAssertNil(blank["metadata"])
+
+    let withProject = GeminiAgyClient.fetchAvailableModelsBody(project: "proj-1")
+    XCTAssertEqual(withProject["project"] as? String, "proj-1")
+    XCTAssertNil(withProject["metadata"])
+    XCTAssertEqual(withProject.count, 1)
+
+    let load = GeminiAgyClient.loadCodeAssistBody()
+    let metadata = try XCTUnwrap(load["metadata"] as? [String: Any])
+    XCTAssertEqual(metadata["ideType"] as? String, "ANTIGRAVITY")
+  }
+
+  func testFetchModelsRequestOmitsMetadata() throws {
+    let payload = #"{"models":{"gemini-3.8-flash":{"displayName":"Gemini 3.8 Flash"}}}"#.data(using: .utf8)!
+    var captured: URLRequest?
+    _ = try GeminiAgyClient.fetchModels(
+      baseURL: GeminiAgyClient.defaultHost,
+      environment: [:],
+      ensureToken: { _ in "access-token" },
+      perform: { request in
+        captured = request
+        return (200, [:], payload)
+      }
+    )
+    let body = try XCTUnwrap(captured?.httpBody)
+    let object = try XCTUnwrap(JSONSerialization.jsonObject(with: body) as? [String: Any])
+    XCTAssertNil(object["metadata"])
+    XCTAssertTrue(object.isEmpty)
+    XCTAssertEqual(captured?.url?.absoluteString, "https://daily-cloudcode-pa.googleapis.com/v1internal:fetchAvailableModels")
+  }
+
   func testPreferredModelPicksFlashWithoutInventingAnID() {
     let models = [
       FetchedModel(id: "gemini-4-hydrogen", ownedBy: "Hydrogen"),
