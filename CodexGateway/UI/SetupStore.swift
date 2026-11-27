@@ -25,7 +25,10 @@ final class SetupStore: ObservableObject {
   @Published var geminiAgyStatus = GeminiAgySession.Status(
     configured: false,
     source: "",
-    setupHint: GeminiAgySession.signInMessage
+    setupHint: GeminiAgySession.signInMessage,
+    access: .notSignedIn,
+    osStatus: nil,
+    osStatusName: nil
   )
   @Published var claudeCodeStatus = ClaudeCodeSession.Status.idle()
 

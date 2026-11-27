@@ -47,8 +47,8 @@ This integration is unofficial. It uses your Google AI Pro quota through the Ant
 
 1. In CodexGateway, install **Google Gemini**. There is no API key field.
 2. On that Mac, run `agy` in a local terminal and finish Google sign-in.
-3. If macOS asks the first time CodexGateway reads the login Keychain item, click **Allow**.
-4. Fetch models. The list comes from Cloud Code. If you are not signed in, the catalog stays empty and the app tells you to run `agy`.
+3. If macOS asks the first time CodexGateway reads the login Keychain item, enter your login-keychain password and click **Always Allow**. Allow also works for that one app launch. The prompt can stay on screen longer than a few seconds. CodexGateway waits for it when it needs a token (at least two minutes, or `GEMINI_AGY_KEYCHAIN_WAIT_SECONDS` if that is set). Settings and Doctor do a single Keychain lookup and, if the prompt is still unresolved, say to click **Always Allow**. That is not the same as "not signed in". "Not signed in" means the `gemini` / `antigravity` item is missing and the fallback file has no session. Deny, or a canceled prompt, is reported as access denied.
+4. Fetch models. The list comes from Cloud Code. If you are not signed in, the catalog stays empty and the app tells you to run `agy`. If the Keychain prompt is still waiting, it tells you to click **Always Allow** instead of running `agy` again.
 
 A missing or expired thought signature on a later tool-call turn means the cached signature is gone (they last 24 hours). Start a new turn. HTTP 429 includes `Retry-After` when Google sends it.
 

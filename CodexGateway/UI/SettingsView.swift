@@ -541,6 +541,14 @@ struct SettingsView: View {
     }
   }
 
+  private func geminiAgyBadgeTitle(_ status: GeminiAgySession.Status) -> String {
+    switch status.access {
+    case .promptPending: return "Allow"
+    case .accessDenied: return "Denied"
+    case .notSignedIn, .available: return "Sign in"
+    }
+  }
+
   @ViewBuilder
   private func providerKeyBadge(for provider: ProviderConfig) -> some View {
     if provider.usesGrokOAuth {
@@ -564,7 +572,7 @@ struct SettingsView: View {
           .foregroundStyle(.green)
           .help("Unofficial agy Google sign-in. No API key is stored.")
       } else {
-        Label("Sign in", systemImage: "person.badge.key")
+        Label(geminiAgyBadgeTitle(status), systemImage: "person.badge.key")
           .font(.caption2)
           .foregroundStyle(.orange)
           .help(status.setupHint ?? GeminiAgySession.signInMessage)

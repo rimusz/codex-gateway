@@ -43,15 +43,18 @@ enum DoctorCollector {
     inputs.claudeCodeInstalled = claudeCodeInstalled
     inputs.geminiAgyInstalled = geminiInstalled
     let sessionFlags = await Task.detached(priority: .userInitiated) {
-      (
+      let gemini = geminiInstalled ? GeminiAgySession.status() : nil
+      return (
         GrokOAuthSession.status().configured,
         claudeCodeInstalled ? ClaudeCodeSession.status().configured : false,
-        geminiInstalled ? GeminiAgySession.status().configured : false
+        gemini?.configured ?? false,
+        gemini?.setupHint ?? ""
       )
     }.value
     inputs.grokOAuthConfigured = sessionFlags.0
     inputs.claudeCodeConfigured = sessionFlags.1
     inputs.geminiAgyConfigured = sessionFlags.2
+    inputs.geminiAgySetupHint = sessionFlags.3
     return inputs
   }
 

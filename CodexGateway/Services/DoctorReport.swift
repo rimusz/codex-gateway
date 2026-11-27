@@ -20,6 +20,8 @@ struct DoctorInputs: Equatable, Sendable {
   var claudeCodeConfigured = false
   var geminiAgyInstalled = false
   var geminiAgyConfigured = false
+  /// User-facing Gemini Keychain outcome when the session is not available. Empty uses the sign-in text.
+  var geminiAgySetupHint = ""
 }
 
 struct DoctorCheck: Identifiable, Equatable, Sendable {
@@ -104,6 +106,7 @@ enum DoctorReport {
       return "Run \(ClaudeCodeSession.loginCommand) in Terminal, then re-run Doctor."
     }
     if inputs.geminiAgyInstalled, !inputs.geminiAgyConfigured {
+      if !inputs.geminiAgySetupHint.isEmpty { return inputs.geminiAgySetupHint }
       return "Run agy in Terminal and sign in with Google, then re-run Doctor. Click Allow if the Keychain asks."
     }
     if !inputs.configApplied {
@@ -296,10 +299,13 @@ enum DoctorReport {
         status: .ok
       )
     }
+    let detail = inputs.geminiAgySetupHint.isEmpty
+      ? "Not signed in. Run agy in Terminal and sign in with Google. Click Allow if the Keychain asks."
+      : inputs.geminiAgySetupHint
     return DoctorCheck(
       id: "gemini-agy",
       title: "Gemini (agy, unofficial)",
-      detail: "Not signed in. Run agy in Terminal and sign in with Google. Click Allow if the Keychain asks.",
+      detail: detail,
       status: .warning
     )
   }

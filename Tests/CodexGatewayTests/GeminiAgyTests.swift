@@ -64,6 +64,135 @@ final class GeminiAgyTests: CodexGatewayTestCase {
     }
   }
 
+  func testKeychainSuccessParsesAndNotFoundIsNotSignedIn() {
+    let data = tokenJSON(access: "access-a", expiry: "2099-01-01T00:00:00Z")
+    let ok = GeminiAgySession.status(readKeychain: {
+      GeminiAgySession.KeychainItem(status: errSecSuccess, data: data, elapsed: 0)
+    }, fileURL: URL(fileURLWithPath: "/tmp/does-not-exist-agy-token"))
+    XCTAssertEqual(ok.access, .available)
+    XCTAssertTrue(ok.configured)
+    XCTAssertEqual(ok.osStatus, errSecSuccess)
+    XCTAssertEqual(ok.osStatusName, "errSecSuccess")
+    XCTAssertNil(ok.setupHint)
+
+    let missing = GeminiAgySession.status(readKeychain: {
+      GeminiAgySession.KeychainItem(status: errSecItemNotFound, data: nil, elapsed: 0)
+    }, fileURL: URL(fileURLWithPath: "/tmp/does-not-exist-agy-token"))
+    XCTAssertEqual(missing.access, .notSignedIn)
+    XCTAssertFalse(missing.configured)
+    XCTAssertEqual(missing.osStatus, errSecItemNotFound)
+    XCTAssertEqual(missing.osStatusName, "errSecItemNotFound")
+    XCTAssertEqual(missing.setupHint, GeminiAgySession.signInMessage)
+    XCTAssertFalse(missing.setupHint?.contains("access-a") ?? true)
+  }
+
+  func testUserCanceledAndFastAuthFailedAreDenied() {
+    let canceled = GeminiAgySession.status(readKeychain: {
+      GeminiAgySession.KeychainItem(status: errSecUserCanceled, data: nil, elapsed: 0.1)
+    })
+    XCTAssertEqual(canceled.access, .accessDenied)
+    XCTAssertEqual(canceled.osStatusName, "errSecUserCanceled")
+    XCTAssertEqual(canceled.setupHint, GeminiAgySession.accessDeniedMessage)
+
+    let fast = GeminiAgySession.status(readKeychain: {
+      GeminiAgySession.KeychainItem(status: errSecAuthFailed, data: nil, elapsed: 0.4)
+    })
+    XCTAssertEqual(fast.access, .accessDenied)
+    XCTAssertEqual(fast.osStatus, errSecAuthFailed)
+    XCTAssertEqual(fast.osStatusName, "errSecAuthFailed")
+    XCTAssertFalse(fast.setupHint?.contains("access_token") ?? true)
+  }
+
+  func testSingleStatusCallReportsPromptPendingWithoutRetrying() {
+    var reads = 0
+    let status = GeminiAgySession.status(readKeychain: {
+      reads += 1
+      return GeminiAgySession.KeychainItem(status: errSecInteractionRequired, data: nil, elapsed: 0)
+    })
+    XCTAssertEqual(reads, 1)
+    XCTAssertEqual(status.access, .promptPending)
+    XCTAssertFalse(status.configured)
+    XCTAssertEqual(status.osStatus, errSecInteractionRequired)
+    XCTAssertEqual(status.osStatusName, "errSecInteractionRequired")
+    XCTAssertEqual(status.setupHint, GeminiAgySession.promptPendingMessage)
+    XCTAssertTrue(status.setupHint?.contains("Always Allow") ?? false)
+
+    let slow = GeminiAgySession.status(readKeychain: {
+      GeminiAgySession.KeychainItem(status: errSecAuthFailed, data: nil, elapsed: 9.951)
+    })
+    XCTAssertEqual(slow.access, .promptPending)
+    XCTAssertEqual(slow.osStatusName, "errSecAuthFailed")
+  }
+
+  func testWaitRetriesSlowAuthFailedThenSucceeds() {
+    let secret = tokenJSON(access: "from-keychain", expiry: "2099-01-01T00:00:00Z")
+    var reads = 0
+    var clock = Date(timeIntervalSince1970: 1_700_000_000)
+    let resolution = GeminiAgySession.waitForKeychainAccess(
+      waitSeconds: 30,
+      readKeychain: {
+        reads += 1
+        if reads == 1 {
+          return GeminiAgySession.KeychainItem(status: errSecAuthFailed, data: nil, elapsed: 10)
+        }
+        return GeminiAgySession.KeychainItem(status: errSecSuccess, data: secret, elapsed: 0.01)
+      },
+      fileURL: URL(fileURLWithPath: "/tmp/does-not-exist-agy-token"),
+      sleep: { clock = clock.addingTimeInterval($0) },
+      now: { clock }
+    )
+    XCTAssertEqual(reads, 2)
+    XCTAssertEqual(resolution.access, .available)
+    XCTAssertEqual(resolution.session?.accessToken, "from-keychain")
+    XCTAssertEqual(resolution.osStatusName, "errSecSuccess")
+    XCTAssertNil(resolution.setupHint)
+  }
+
+  func testEnsureFreshDoesNotRefreshWhenPromptPendingOrDenied() {
+    var refreshes = 0
+    let refresh: () throws -> String = {
+      refreshes += 1
+      return "should-not-run"
+    }
+    XCTAssertThrowsError(try GeminiAgySession.ensureFreshAccessToken(
+      readKeychain: {
+        GeminiAgySession.KeychainItem(status: errSecAuthFailed, data: nil, elapsed: 10)
+      },
+      fileURL: URL(fileURLWithPath: "/tmp/does-not-exist-agy-token"),
+      refresh: refresh,
+      waitSeconds: 0,
+      sleep: { _ in }
+    )) { error in
+      XCTAssertEqual(error as? GeminiAgySession.SessionError, .promptPending)
+    }
+    XCTAssertThrowsError(try GeminiAgySession.ensureFreshAccessToken(
+      readKeychain: {
+        GeminiAgySession.KeychainItem(status: errSecUserCanceled, data: nil, elapsed: 0.2)
+      },
+      fileURL: URL(fileURLWithPath: "/tmp/does-not-exist-agy-token"),
+      refresh: refresh,
+      waitSeconds: 0,
+      sleep: { _ in }
+    )) { error in
+      XCTAssertEqual(error as? GeminiAgySession.SessionError, .accessDenied)
+    }
+    XCTAssertEqual(refreshes, 0)
+    let denied = GeminiAgySession.accessDeniedMessage
+    let pending = GeminiAgySession.promptPendingMessage
+    XCTAssertFalse(denied.contains("from-keychain"))
+    XCTAssertFalse(pending.contains("from-keychain"))
+    XCTAssertFalse(denied.contains("refresh_token"))
+    XCTAssertFalse(pending.contains("ya29"))
+  }
+
+  func testKeychainWaitSecondsEnv() {
+    XCTAssertEqual(GeminiAgySession.keychainWaitSeconds(environment: [:]), 120)
+    XCTAssertEqual(GeminiAgySession.keychainWaitSeconds(environment: ["GEMINI_AGY_KEYCHAIN_WAIT_SECONDS": "0"]), 0)
+    XCTAssertEqual(GeminiAgySession.keychainWaitSeconds(environment: ["GEMINI_AGY_KEYCHAIN_WAIT_SECONDS": "nope"]), 120)
+    XCTAssertEqual(GeminiAgySession.osStatusName(errSecInteractionNotAllowed), "errSecInteractionNotAllowed")
+    XCTAssertEqual(GeminiAgySession.osStatusName(errSecInDarkWake), "errSecInDarkWake")
+  }
+
   func testLocateAgyHonorsEnvAndDoesNotUseAMissingPath() {
     let missing = GeminiAgySession.locateAgyCLI(
       environment: ["AGY_CLI_PATH": "/no/such/agy", "PATH": ""],

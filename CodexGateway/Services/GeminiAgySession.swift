@@ -12,13 +12,34 @@ enum GeminiAgySession {
   static let keychainAccount = "antigravity"
   static let loginCommand = "agy"
 
-  /// Shown for a missing session, a failed CLI refresh, and HTTP 401/403.
+  /// Shown when the Keychain item is absent and the fallback file has no session.
   static let signInMessage = """
     Gemini is not signed in. Run `agy` in a local terminal and complete Google sign-in. \
     The first time CodexGateway reads the login Keychain item, macOS may ask you to click Allow.
     """
 
+  /// User canceled the prompt, or `errSecAuthFailed` came back too quickly to be a still-open dialog.
+  static let accessDeniedMessage = """
+    macOS denied access to the Gemini login Keychain item. \
+    Open CodexGateway again and click Allow, or click Always Allow on the SecurityAgent prompt. \
+    If you have not signed in yet, run `agy` in a local terminal.
+    """
+
+  /// A user-interaction prompt is still required or returned before the user finished it.
+  static let promptPendingMessage = """
+    macOS is still waiting for the login Keychain prompt for the Gemini item. \
+    Enter your login keychain password and click Always Allow, then retry. \
+    A prompt that is still on screen is not the same as being signed out.
+    """
+
   static let thoughtSignatureMessage = "The cached Gemini thought signature is missing or expired. Send a new turn so Gemini can issue a fresh signature."
+
+  /// Long enough for a person to type a login-keychain password and click Always Allow.
+  static let defaultKeychainWaitSeconds: TimeInterval = 120
+  static let keychainWaitEnvironmentKey = "GEMINI_AGY_KEYCHAIN_WAIT_SECONDS"
+  /// `errSecAuthFailed` faster than this is treated as Deny. Slower matches a dialog that is still up.
+  static let fastAuthFailureSeconds: TimeInterval = 2
+  private static let keychainRetrySleep: TimeInterval = 0.25
 
   private static let refreshSkew: TimeInterval = 60
   private static let refreshTimeout: TimeInterval = 30
@@ -29,10 +50,37 @@ enum GeminiAgySession {
     let authMethod: String?
   }
 
+  /// One `SecItemCopyMatching` result. `elapsed` is how long that call took.
+  /// Tests set `elapsed` directly. A nil `elapsed` means the caller should measure wall time.
+  struct KeychainItem: Equatable, Sendable {
+    var status: OSStatus
+    var data: Data?
+    var elapsed: TimeInterval?
+  }
+
+  enum Access: String, Equatable, Sendable {
+    case available
+    case notSignedIn
+    case accessDenied
+    case promptPending
+  }
+
   struct Status: Equatable, Sendable {
-    let configured: Bool
-    let source: String
-    let setupHint: String?
+    var configured: Bool
+    var source: String
+    var setupHint: String?
+    var access: Access = .notSignedIn
+    var osStatus: OSStatus?
+    var osStatusName: String?
+  }
+
+  struct KeychainResolution: Equatable, Sendable {
+    var access: Access
+    var session: Session?
+    var source: String
+    var osStatus: OSStatus?
+    var osStatusName: String?
+    var setupHint: String?
   }
 
   static func defaultFileURL(home: String = NSHomeDirectory()) -> URL {
@@ -40,26 +88,114 @@ enum GeminiAgySession {
       .appendingPathComponent(".gemini/antigravity-cli/antigravity-oauth-token")
   }
 
+  /// One Keychain lookup. Does not retry. A prompt-related status is `promptPending` immediately.
   static func status(
-    readKeychain: () -> Data? = { readKeychainData() },
+    readKeychain: () -> KeychainItem = { readKeychainItem() },
+    fileURL: URL = defaultFileURL(),
+    now: () -> Date = Date.init
+  ) -> Status {
+    let resolution = waitForKeychainAccess(
+      waitSeconds: 0,
+      readKeychain: readKeychain,
+      fileURL: fileURL,
+      sleep: { _ in },
+      now: now
+    )
+    return Status(
+      configured: resolution.access == .available,
+      source: resolution.source,
+      setupHint: resolution.setupHint,
+      access: resolution.access,
+      osStatus: resolution.osStatus,
+      osStatusName: resolution.osStatusName
+    )
+  }
+
+  /// Existing tests inject `() -> Data?`. Empty/nil means the item is not in the Keychain.
+  static func status(
+    readKeychain: () -> Data?,
     fileURL: URL = defaultFileURL()
   ) -> Status {
-    if parseSession(readKeychain()) != nil {
-      return Status(configured: true, source: "keychain:\(keychainService)/\(keychainAccount)", setupHint: nil)
-    }
-    if parseSession(try? Data(contentsOf: fileURL)) != nil {
-      return Status(configured: true, source: fileURL.path, setupHint: nil)
-    }
-    return Status(configured: false, source: "keychain:\(keychainService)/\(keychainAccount)", setupHint: signInMessage)
+    status(readKeychain: { keychainItem(from: readKeychain()) }, fileURL: fileURL)
   }
 
   /// Prefer a parsable Keychain document, then the fallback file. Tokens are not logged.
+  /// Prompt-pending and access-denied do not fall through to the file.
   static func readSession(
-    readKeychain: () -> Data? = { readKeychainData() },
+    readKeychain: () -> KeychainItem = { readKeychainItem() },
     fileURL: URL = defaultFileURL()
   ) -> Session? {
-    if let session = parseSession(readKeychain()) { return session }
-    return parseSession(try? Data(contentsOf: fileURL))
+    let resolution = waitForKeychainAccess(waitSeconds: 0, readKeychain: readKeychain, fileURL: fileURL, sleep: { _ in })
+    return resolution.session
+  }
+
+  static func readSession(
+    readKeychain: () -> Data?,
+    fileURL: URL = defaultFileURL()
+  ) -> Session? {
+    readSession(readKeychain: { keychainItem(from: readKeychain()) }, fileURL: fileURL)
+  }
+
+  static func keychainItem(from data: Data?) -> KeychainItem {
+    if let data, !data.isEmpty {
+      return KeychainItem(status: errSecSuccess, data: data, elapsed: 0)
+    }
+    return KeychainItem(status: errSecItemNotFound, data: nil, elapsed: 0)
+  }
+
+  static func keychainWaitSeconds(
+    environment: [String: String] = ProcessInfo.processInfo.environment
+  ) -> TimeInterval {
+    guard let raw = environment[keychainWaitEnvironmentKey]?.trimmingCharacters(in: .whitespacesAndNewlines),
+          !raw.isEmpty else {
+      return defaultKeychainWaitSeconds
+    }
+    guard let value = Double(raw), value.isFinite, value >= 0 else {
+      return defaultKeychainWaitSeconds
+    }
+    return value
+  }
+
+  /// Repeats `SecItemCopyMatching` until success, a terminal status, or `waitSeconds`.
+  /// `0` performs a single read (Settings and Doctor).
+  static func waitForKeychainAccess(
+    waitSeconds: TimeInterval? = nil,
+    readKeychain: () -> KeychainItem = { readKeychainItem() },
+    fileURL: URL = defaultFileURL(),
+    sleep: (TimeInterval) -> Void = { Thread.sleep(forTimeInterval: $0) },
+    now: () -> Date = Date.init
+  ) -> KeychainResolution {
+    let budget = waitSeconds ?? keychainWaitSeconds()
+    let start = now()
+    let deadline = start.addingTimeInterval(budget)
+    var stalled = 0
+    while true {
+      let wallStart = now()
+      let item = readKeychain()
+      let elapsed = item.elapsed ?? now().timeIntervalSince(wallStart)
+      let decision = classify(status: item.status, elapsed: elapsed, data: item.data, fileURL: fileURL)
+      switch decision {
+      case .finished(let resolution):
+        return resolution
+      case .retry(let status):
+        logKeychainWait(status)
+        if budget <= 0 || now() >= deadline {
+          return resolution(access: .promptPending, session: nil, source: keychainSource, status: status)
+        }
+        let remaining = deadline.timeIntervalSince(now())
+        let pause = min(keychainRetrySleep, max(remaining, 0))
+        let beforeSleep = now()
+        if pause > 0 { sleep(pause) }
+        if now() <= beforeSleep {
+          stalled += 1
+          if stalled >= 3 {
+            return resolution(access: .promptPending, session: nil, source: keychainSource, status: status)
+          }
+        } else {
+          stalled = 0
+        }
+      }
+    }
   }
 
   static func parseSession(_ data: Data?) -> Session? {
@@ -107,27 +243,55 @@ enum GeminiAgySession {
 
   enum SessionError: LocalizedError, Equatable {
     case notSignedIn
+    case accessDenied
+    case promptPending
     case refreshFailed
 
     var errorDescription: String? {
       switch self {
       case .notSignedIn, .refreshFailed:
         return GeminiAgySession.signInMessage
+      case .accessDenied:
+        return GeminiAgySession.accessDeniedMessage
+      case .promptPending:
+        return GeminiAgySession.promptPendingMessage
       }
     }
   }
 
-  /// Usable access token. Runs `agy models` when the token is missing or near expiry, then re-reads.
+  /// Usable access token. Runs `agy models` only when the item is readable but expired, or when
+  /// there is no item and the fallback file also has no token. A Keychain prompt is not a refresh.
   static func ensureFreshAccessToken(
     force: Bool = false,
     now: Date = Date(),
-    readKeychain: () -> Data? = { readKeychainData() },
+    readKeychain: () -> KeychainItem = { readKeychainItem() },
     fileURL: URL = defaultFileURL(),
-    refresh: (() throws -> String)? = nil
+    refresh: (() throws -> String)? = nil,
+    waitSeconds: TimeInterval? = nil,
+    sleep: (TimeInterval) -> Void = { Thread.sleep(forTimeInterval: $0) },
+    clock: () -> Date = Date.init
   ) throws -> String {
-    let initial = readSession(readKeychain: readKeychain, fileURL: fileURL)
-    if !force, let initial, !isExpired(initial, now: now) {
-      return initial.accessToken
+    let initial = waitForKeychainAccess(
+      waitSeconds: waitSeconds,
+      readKeychain: readKeychain,
+      fileURL: fileURL,
+      sleep: sleep,
+      now: clock
+    )
+    switch initial.access {
+    case .accessDenied:
+      throw SessionError.accessDenied
+    case .promptPending:
+      throw SessionError.promptPending
+    case .available, .notSignedIn:
+      break
+    }
+    if !force, let session = initial.session, !isExpired(session, now: now) {
+      return session.accessToken
+    }
+    // Readable-but-expired, or no item and no file session. Do not refresh a pending prompt.
+    guard initial.access == .available || initial.access == .notSignedIn else {
+      throw SessionError.promptPending
     }
 
     let refreshFn = refresh ?? { try runAgyModelsRefresh() }
@@ -143,13 +307,45 @@ enum GeminiAgySession {
       throw SessionError.notSignedIn
     }
 
-    guard let refreshed = readSession(readKeychain: readKeychain, fileURL: fileURL) else {
+    let refreshed = waitForKeychainAccess(
+      waitSeconds: waitSeconds,
+      readKeychain: readKeychain,
+      fileURL: fileURL,
+      sleep: sleep,
+      now: clock
+    )
+    switch refreshed.access {
+    case .accessDenied:
+      throw SessionError.accessDenied
+    case .promptPending:
+      throw SessionError.promptPending
+    case .notSignedIn:
       throw SessionError.notSignedIn
+    case .available:
+      guard let session = refreshed.session else { throw SessionError.notSignedIn }
+      if isExpired(session, now: now) {
+        throw SessionError.refreshFailed
+      }
+      return session.accessToken
     }
-    if isExpired(refreshed, now: now) {
-      throw SessionError.refreshFailed
-    }
-    return refreshed.accessToken
+  }
+
+  static func ensureFreshAccessToken(
+    force: Bool = false,
+    now: Date = Date(),
+    readKeychain: () -> Data?,
+    fileURL: URL = defaultFileURL(),
+    refresh: (() throws -> String)? = nil
+  ) throws -> String {
+    try ensureFreshAccessToken(
+      force: force,
+      now: now,
+      readKeychain: { keychainItem(from: readKeychain()) },
+      fileURL: fileURL,
+      refresh: refresh,
+      waitSeconds: 0,
+      sleep: { _ in }
+    )
   }
 
   static func locateAgyCLI(
@@ -184,10 +380,21 @@ enum GeminiAgySession {
   }
 
   /// Read-only Keychain lookup. Tests inject a closure and must not call this.
+  /// Keeps the `Data?` shape for older callers. Non-success, including a prompt, is nil here;
+  /// use `readKeychainItem()` when the OSStatus matters.
   static func readKeychainData(
     service: String = keychainService,
     account: String = keychainAccount
   ) -> Data? {
+    readKeychainItem(service: service, account: account).data
+  }
+
+  /// One `SecItemCopyMatching`. Logs the numeric OSStatus and its Security constant name.
+  /// Never logs the item bytes.
+  static func readKeychainItem(
+    service: String = keychainService,
+    account: String = keychainAccount
+  ) -> KeychainItem {
     let query: [String: Any] = [
       kSecClass as String: kSecClassGenericPassword,
       kSecAttrService as String: service,
@@ -196,9 +403,112 @@ enum GeminiAgySession {
       kSecMatchLimit as String: kSecMatchLimitOne,
     ]
     var item: CFTypeRef?
+    let started = Date()
     let status = SecItemCopyMatching(query as CFDictionary, &item)
-    guard status == errSecSuccess, let data = item as? Data, !data.isEmpty else { return nil }
-    return data
+    let elapsed = Date().timeIntervalSince(started)
+    if status != errSecSuccess {
+      let line = "Gemini Keychain read OSStatus=\(status) (\(osStatusName(status)))\n"
+      fputs(line, stderr)
+      return KeychainItem(status: status, data: nil, elapsed: elapsed)
+    }
+    guard let data = item as? Data, !data.isEmpty else {
+      return KeychainItem(status: status, data: nil, elapsed: elapsed)
+    }
+    return KeychainItem(status: status, data: data, elapsed: elapsed)
+  }
+
+  static func osStatusName(_ status: OSStatus) -> String {
+    switch status {
+    case errSecSuccess: return "errSecSuccess"
+    case errSecUserCanceled: return "errSecUserCanceled"
+    case errSecAuthFailed: return "errSecAuthFailed"
+    case errSecItemNotFound: return "errSecItemNotFound"
+    case errSecInteractionNotAllowed: return "errSecInteractionNotAllowed"
+    case errSecInteractionRequired: return "errSecInteractionRequired"
+    case errSecInDarkWake: return "errSecInDarkWake"
+    default: return "OSStatus_\(status)"
+    }
+  }
+
+  private static var keychainSource: String { "keychain:\(keychainService)/\(keychainAccount)" }
+
+  private enum ClassifyDecision {
+    case finished(KeychainResolution)
+    case retry(OSStatus)
+  }
+
+  private static func classify(
+    status: OSStatus,
+    elapsed: TimeInterval,
+    data: Data?,
+    fileURL: URL
+  ) -> ClassifyDecision {
+    if status == errSecSuccess {
+      if let session = parseSession(data) {
+        return .finished(resolution(access: .available, session: session, source: keychainSource, status: status))
+      }
+      if let session = parseSession(try? Data(contentsOf: fileURL)) {
+        return .finished(resolution(access: .available, session: session, source: fileURL.path, status: status))
+      }
+      return .finished(resolution(access: .notSignedIn, session: nil, source: keychainSource, status: status))
+    }
+    if status == errSecItemNotFound {
+      if let session = parseSession(try? Data(contentsOf: fileURL)) {
+        return .finished(resolution(access: .available, session: session, source: fileURL.path, status: status))
+      }
+      return .finished(resolution(access: .notSignedIn, session: nil, source: keychainSource, status: status))
+    }
+    if status == errSecUserCanceled {
+      return .finished(resolution(access: .accessDenied, session: nil, source: keychainSource, status: status))
+    }
+    if status == errSecAuthFailed {
+      if elapsed < fastAuthFailureSeconds {
+        return .finished(resolution(access: .accessDenied, session: nil, source: keychainSource, status: status))
+      }
+      return .retry(status)
+    }
+    if isPromptStatus(status) {
+      return .retry(status)
+    }
+    return .finished(resolution(access: .accessDenied, session: nil, source: keychainSource, status: status))
+  }
+
+  private static func isPromptStatus(_ status: OSStatus) -> Bool {
+    status == errSecInteractionNotAllowed
+      || status == errSecInteractionRequired
+      || status == errSecInDarkWake
+  }
+
+  private static func resolution(
+    access: Access,
+    session: Session?,
+    source: String,
+    status: OSStatus
+  ) -> KeychainResolution {
+    let hint: String?
+    switch access {
+    case .available:
+      hint = nil
+    case .notSignedIn:
+      hint = signInMessage
+    case .accessDenied:
+      hint = accessDeniedMessage
+    case .promptPending:
+      hint = promptPendingMessage
+    }
+    return KeychainResolution(
+      access: access,
+      session: session,
+      source: source,
+      osStatus: status,
+      osStatusName: osStatusName(status),
+      setupHint: hint
+    )
+  }
+
+  private static func logKeychainWait(_ status: OSStatus) {
+    let line = "waiting for Keychain Allow, OSStatus=\(status) (\(osStatusName(status)))\n"
+    fputs(line, stderr)
   }
 
   private static func runAgyModelsRefresh() throws -> String {

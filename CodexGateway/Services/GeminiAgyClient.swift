@@ -295,6 +295,19 @@ enum GeminiAgyClient {
     return nil
   }
 
+  /// A Keychain Allow prompt or a Deny must not be rewritten as "run agy".
+  private static func clientError(fromTokenFailure error: Error) -> ClientError {
+    guard let sessionError = error as? GeminiAgySession.SessionError else {
+      return .notSignedIn
+    }
+    switch sessionError {
+    case .accessDenied, .promptPending:
+      return .transport(sessionError.localizedDescription)
+    case .notSignedIn, .refreshFailed:
+      return .notSignedIn
+    }
+  }
+
   static func fetchModels(
     baseURL: String = defaultHost,
     environment: [String: String] = ProcessInfo.processInfo.environment,
@@ -306,7 +319,7 @@ enum GeminiAgyClient {
     do {
       token = try ensureToken(false)
     } catch {
-      throw ClientError.notSignedIn
+      throw clientError(fromTokenFailure: error)
     }
     let host = resolvedHost(configured: baseURL, environment: environment)
     var request = URLRequest(url: methodURL(host: host, method: "fetchAvailableModels"))
@@ -341,7 +354,7 @@ enum GeminiAgyClient {
     do {
       token = try ensureToken(false)
     } catch {
-      throw ClientError.notSignedIn
+      throw clientError(fromTokenFailure: error)
     }
     let host = resolvedHost(configured: baseURL, environment: environment)
     let model = chatBody["model"] as? String ?? ""
