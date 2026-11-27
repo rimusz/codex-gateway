@@ -11,6 +11,7 @@ enum DoctorCollector {
     let cursorInstalled = providers.contains { $0.usesCursorBridge }
     let grokInstalled = providers.contains { $0.usesGrokOAuth }
     let claudeCodeInstalled = providers.contains { $0.usesClaudeCodeAuth }
+    let geminiInstalled = providers.contains { $0.usesGeminiAgyOAuth }
     let configApplied = CodexConfig.hasManagedBlock()
     let configContent = try? String(contentsOfFile: Paths.codexConfig, encoding: .utf8)
 
@@ -40,14 +41,17 @@ enum DoctorCollector {
 
     inputs.grokOAuthInstalled = grokInstalled
     inputs.claudeCodeInstalled = claudeCodeInstalled
+    inputs.geminiAgyInstalled = geminiInstalled
     let sessionFlags = await Task.detached(priority: .userInitiated) {
       (
         GrokOAuthSession.status().configured,
-        claudeCodeInstalled ? ClaudeCodeSession.status().configured : false
+        claudeCodeInstalled ? ClaudeCodeSession.status().configured : false,
+        geminiInstalled ? GeminiAgySession.status().configured : false
       )
     }.value
     inputs.grokOAuthConfigured = sessionFlags.0
     inputs.claudeCodeConfigured = sessionFlags.1
+    inputs.geminiAgyConfigured = sessionFlags.2
     return inputs
   }
 

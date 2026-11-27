@@ -57,8 +57,9 @@ final class DoctorReportTests: CodexGatewayTestCase {
     XCTAssertEqual(check(inputs, id: "cursor").status, .info)
     XCTAssertEqual(check(inputs, id: "grok-oauth").status, .info)
     XCTAssertEqual(check(inputs, id: "claude-code").status, .info)
+    XCTAssertEqual(check(inputs, id: "gemini-agy").status, .info)
     XCTAssertEqual(DoctorReport.checks(from: inputs).map(\.id), [
-      "gateway", "config", "signin", "node", "cursor", "grok-oauth", "claude-code",
+      "gateway", "config", "signin", "node", "cursor", "grok-oauth", "claude-code", "gemini-agy",
     ])
   }
 

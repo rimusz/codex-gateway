@@ -149,6 +149,18 @@ final class GatewayServer {
     )
     let stream = chatBody["stream"] as? Bool ?? true
 
+    if provider.usesGeminiAgyOAuth {
+      handleGeminiAgyResponses(
+        chatBody: chatBody,
+        requestedModel: requestedModel,
+        provider: provider,
+        namespaceMap: namespaceMap,
+        stream: stream,
+        response: response
+      )
+      return
+    }
+
     if provider.usesGrokOAuth {
       handleGrokOAuthResponses(
         chatBody: chatBody,
@@ -213,6 +225,75 @@ final class GatewayServer {
           self.json(response, translated)
         }.resume()
       }
+    }
+  }
+
+  private func handleGeminiAgyResponses(
+    chatBody: [String: Any],
+    requestedModel: String,
+    provider: ProviderConfig,
+    namespaceMap: [String: String],
+    stream: Bool,
+    response: HTTPResponse
+  ) {
+    DispatchQueue.global(qos: .userInitiated).async {
+      do {
+        let result = try GeminiAgyClient.forwardChat(
+          chatBody: chatBody,
+          baseURL: provider.base_url.isEmpty ? GeminiAgyClient.defaultHost : provider.base_url
+        )
+        if result.isStream || stream {
+          self.emitChatSSEAsResponses(
+            chatSSE: String(data: result.data, encoding: .utf8) ?? "",
+            requestedModel: requestedModel,
+            namespaceMap: namespaceMap,
+            providerID: provider.name,
+            response: response
+          )
+        } else {
+          guard let payload = try? JSONSerialization.jsonObject(with: result.data) as? [String: Any] else {
+            self.json(response, GatewayServer.upstreamErrorPayload(status: 502, bodyPreview: "Invalid Gemini JSON"), status: 502)
+            return
+          }
+          let translated = Translator.chatCompletionToResponse(
+            payload: payload,
+            requestedModel: requestedModel,
+            namespaceMap: namespaceMap,
+            providerID: provider.name
+          )
+          self.json(response, translated)
+        }
+      } catch let error as GeminiAgyClient.ClientError {
+        self.sendGeminiAgyError(error, requestedModel: requestedModel, response: response)
+      } catch {
+        GatewayLog.error("Gemini agy failed for \(requestedModel): \(error.localizedDescription)")
+        self.json(response, ["error": error.localizedDescription], status: 502)
+      }
+    }
+  }
+
+  private func sendGeminiAgyError(_ error: GeminiAgyClient.ClientError, requestedModel: String, response: HTTPResponse) {
+    switch error {
+    case .notSignedIn:
+      GatewayLog.error("Gemini agy is not signed in for \(requestedModel)")
+      json(response, [
+        "error": [
+          "message": error.localizedDescription,
+          "type": "authentication_error",
+          "code": 401
+        ] as [String: Any]
+      ], status: 401)
+    case .rateLimited:
+      json(response, GatewayServer.upstreamErrorPayload(status: 429, bodyPreview: error.localizedDescription), status: 429)
+    case .modelNotFound:
+      json(response, GatewayServer.upstreamErrorPayload(status: 404, bodyPreview: error.localizedDescription), status: 404)
+    case .thoughtSignature:
+      json(response, GatewayServer.upstreamErrorPayload(status: 400, bodyPreview: error.localizedDescription), status: 400)
+    case .upstream(let status, let detail):
+      GatewayLog.error("Gemini agy upstream \(requestedModel) status=\(status)")
+      json(response, GatewayServer.upstreamErrorPayload(status: status, bodyPreview: detail), status: status >= 400 ? status : 502)
+    case .transport(let message):
+      json(response, ["error": message], status: 504)
     }
   }
 
@@ -393,6 +474,24 @@ final class GatewayServer {
     if let resolved = ModelCatalog.shared.resolveUpstream(slug: model) {
       var chat = body
       chat["model"] = resolved.upstreamModel
+
+      if resolved.provider.usesGeminiAgyOAuth {
+        DispatchQueue.global(qos: .userInitiated).async {
+          do {
+            let result = try GeminiAgyClient.forwardChat(
+              chatBody: chat,
+              baseURL: resolved.provider.base_url
+            )
+            let contentType = result.isStream ? "text/event-stream" : "application/json"
+            response.send(status: result.status, headers: ["Content-Type": contentType], body: result.data)
+          } catch let error as GeminiAgyClient.ClientError {
+            self.sendGeminiAgyError(error, requestedModel: model, response: response)
+          } catch {
+            self.json(response, ["error": error.localizedDescription], status: 502)
+          }
+        }
+        return
+      }
 
       if resolved.provider.usesGrokOAuth {
         DispatchQueue.global(qos: .userInitiated).async {

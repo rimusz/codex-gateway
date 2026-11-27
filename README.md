@@ -6,7 +6,7 @@ CodexGateway sits in your menu bar and runs a local gateway so Desktop and the C
 
 ![CodexGateway Settings and menu bar](docs/screenshots/settings-and-menu.png)
 
-> Most providers need an OpenAI-compatible `/chat/completions` endpoint. **Cursor** uses a managed Node sidecar (`@cursor/sdk` on `127.0.0.1:18788`; Node.js ≥ 22.13). **xAI Grok (OAuth)** reuses your Grok CLI login instead of storing an API key.
+> Most providers need an OpenAI-compatible `/chat/completions` endpoint. **Cursor** uses a managed Node sidecar (`@cursor/sdk` on `127.0.0.1:18788`; Node.js ≥ 22.13). **xAI Grok (OAuth)** reuses your Grok CLI login instead of storing an API key. **Google Gemini** is an unofficial agy sign-in (Google AI Pro quota, no API key): install the preset, run `agy` once on that Mac, finish Google sign-in, and click Allow if the Keychain asks. It can break if Google changes Cloud Code or Keychain storage.
 
 ## Requirements
 

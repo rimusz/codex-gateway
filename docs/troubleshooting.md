@@ -41,6 +41,17 @@ If you only quit/reopen Desktop, the CLI may still serve a stale catalog until t
 - Doctor checks Node and the local sidecar on `127.0.0.1:18788`.
 - The bridge is inference-only (assistant text); Codex keeps its own tools.
 
+## Google Gemini (unofficial agy sign-in)
+
+This integration is unofficial. It uses your Google AI Pro quota through the Antigravity CLI (`agy`), not a Gemini API key.
+
+1. In CodexGateway, install **Google Gemini**. There is no API key field.
+2. On that Mac, run `agy` in a local terminal and finish Google sign-in.
+3. If macOS asks the first time CodexGateway reads the login Keychain item, click **Allow**.
+4. Fetch models. The list comes from Cloud Code. If you are not signed in, the catalog stays empty and the app tells you to run `agy`.
+
+A missing or expired thought signature on a later tool-call turn means the cached signature is gone (they last 24 hours). Start a new turn. HTTP 429 includes `Retry-After` when Google sends it.
+
 ## Claude Code / Anthropic
 
 Keep the two Anthropic presets separate:

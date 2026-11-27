@@ -18,6 +18,8 @@ struct DoctorInputs: Equatable, Sendable {
   var grokOAuthConfigured = false
   var claudeCodeInstalled = false
   var claudeCodeConfigured = false
+  var geminiAgyInstalled = false
+  var geminiAgyConfigured = false
 }
 
 struct DoctorCheck: Identifiable, Equatable, Sendable {
@@ -56,6 +58,7 @@ enum DoctorReport {
       cursorCheck(inputs),
       grokOAuthCheck(inputs),
       claudeCodeCheck(inputs),
+      geminiAgyCheck(inputs),
     ]
   }
 
@@ -74,6 +77,9 @@ enum DoctorReport {
     }
     if inputs.claudeCodeInstalled {
       guard inputs.claudeCodeConfigured else { return false }
+    }
+    if inputs.geminiAgyInstalled {
+      guard inputs.geminiAgyConfigured else { return false }
     }
     return true
   }
@@ -96,6 +102,9 @@ enum DoctorReport {
     }
     if inputs.claudeCodeInstalled, !inputs.claudeCodeConfigured {
       return "Run \(ClaudeCodeSession.loginCommand) in Terminal, then re-run Doctor."
+    }
+    if inputs.geminiAgyInstalled, !inputs.geminiAgyConfigured {
+      return "Run agy in Terminal and sign in with Google, then re-run Doctor. Click Allow if the Keychain asks."
     }
     if !inputs.configApplied {
       return "Open Settings and click Update Gateway Config so Codex Desktop uses the local gateway."
@@ -266,6 +275,31 @@ enum DoctorReport {
       id: "grok-oauth",
       title: "Grok (OAuth)",
       detail: "Not connected. Run grok login in Terminal.",
+      status: .warning
+    )
+  }
+
+  private static func geminiAgyCheck(_ inputs: DoctorInputs) -> DoctorCheck {
+    if !inputs.geminiAgyInstalled {
+      return DoctorCheck(
+        id: "gemini-agy",
+        title: "Gemini (agy, unofficial)",
+        detail: "Not added as a provider.",
+        status: .info
+      )
+    }
+    if inputs.geminiAgyConfigured {
+      return DoctorCheck(
+        id: "gemini-agy",
+        title: "Gemini (agy, unofficial)",
+        detail: "agy Google sign-in is configured. Uses Google AI Pro quota, not an API key.",
+        status: .ok
+      )
+    }
+    return DoctorCheck(
+      id: "gemini-agy",
+      title: "Gemini (agy, unofficial)",
+      detail: "Not signed in. Run agy in Terminal and sign in with Google. Click Allow if the Keychain asks.",
       status: .warning
     )
   }

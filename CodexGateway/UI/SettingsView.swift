@@ -404,6 +404,12 @@ struct SettingsView: View {
         ? "Fetch the Cline Pass model list before adding a model (no API key required)."
         : "Refresh the Cline Pass model list (no API key required)."
     }
+    if provider.usesGeminiAgyOAuth
+      || ProviderPreset.matching(providerID: provider.name)?.supportsGeminiAgyModelCatalog == true {
+      return highlight
+        ? "Fetch models with the unofficial agy Google sign-in before adding a model (no API key)."
+        : "Refresh the unofficial agy model list (Google AI Pro quota, no API key)."
+    }
     if provider.usesClaudeCodeAuth {
       return highlight
         ? "Fetch models using your Claude Code login before adding a model."
@@ -549,6 +555,19 @@ struct SettingsView: View {
           .font(.caption2)
           .foregroundStyle(.orange)
           .help(status.setupHint ?? "Run `grok login` in Terminal")
+      }
+    } else if provider.usesGeminiAgyOAuth {
+      let status = GeminiAgySession.status()
+      if status.configured {
+        Label("agy", systemImage: "person.badge.key.fill")
+          .font(.caption2)
+          .foregroundStyle(.green)
+          .help("Unofficial agy Google sign-in. No API key is stored.")
+      } else {
+        Label("Sign in", systemImage: "person.badge.key")
+          .font(.caption2)
+          .foregroundStyle(.orange)
+          .help(status.setupHint ?? GeminiAgySession.signInMessage)
       }
     } else if provider.usesClaudeCodeAuth {
       let status = store.claudeCodeStatus
@@ -1098,6 +1117,13 @@ struct SettingsView: View {
           Text(status.configured ? "Grok CLI session connected." : (status.setupHint ?? "Not signed in"))
             .foregroundStyle(status.configured ? AnyShapeStyle(.primary) : AnyShapeStyle(Color.orange))
           Text("Install @xai-official/grok and run `grok login` (or `grok login --oauth`). Credentials stay in ~/.grok/auth.json.")
+            .font(.caption)
+            .foregroundStyle(.secondary)
+        } else if preset.authKind == .geminiAgyOAuth {
+          let status = GeminiAgySession.status()
+          Text(status.configured ? "agy Google session connected." : (status.setupHint ?? "Not signed in"))
+            .foregroundStyle(status.configured ? AnyShapeStyle(.primary) : AnyShapeStyle(Color.orange))
+          Text("Unofficial. No API key. Run `agy` once on this Mac and finish Google sign-in. Click Allow if the Keychain asks. This uses Google AI Pro quota and may break if Google changes Cloud Code or Keychain storage.")
             .font(.caption)
             .foregroundStyle(.secondary)
         } else if preset.authKind == .claudeCode {

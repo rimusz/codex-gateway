@@ -16,6 +16,8 @@ enum ProviderModelFetcher {
     case invalidURL
     case unauthorized
     case claudeCodeSessionMissing
+    case geminiAgySessionMissing
+    case geminiRateLimited(retryAfter: String?)
     case http(Int)
     case empty
     case transport(String)
@@ -26,6 +28,12 @@ enum ProviderModelFetcher {
       case .invalidURL: return "The base URL is not a valid endpoint."
       case .unauthorized: return "Unauthorized - check the API key for this provider."
       case .claudeCodeSessionMissing: return ClaudeCodeSession.missingSessionMessage()
+      case .geminiAgySessionMissing: return GeminiAgySession.signInMessage
+      case .geminiRateLimited(let retryAfter):
+        if let retryAfter, !retryAfter.isEmpty {
+          return "Gemini quota returned HTTP 429. Retry-After: \(retryAfter)."
+        }
+        return "Gemini quota returned HTTP 429."
       case .http(let code): return "The provider returned HTTP \(code)."
       case .empty: return "The provider returned no models."
       case .transport(let message): return message
@@ -202,6 +210,10 @@ enum ProviderModelFetcher {
       || ProviderPreset.matching(providerID: provider.name)?.supportsGrokOAuthModelCatalog == true {
       return try await fetchGrokOAuthModels(baseURL: provider.base_url)
     }
+    if provider.usesGeminiAgyOAuth
+      || ProviderPreset.matching(providerID: provider.name)?.supportsGeminiAgyModelCatalog == true {
+      return try await fetchGeminiAgyModels(baseURL: provider.base_url)
+    }
     if ProviderPreset.matching(providerID: provider.name)?.supportsLiveCatalogRefresh == true {
       return try await fetchClinePassRecommended()
     }
@@ -224,6 +236,53 @@ enum ProviderModelFetcher {
       apiKey: provider.api_key,
       authKind: provider.resolvedAuthKind
     )
+  }
+
+  /// Cloud Code `fetchAvailableModels` with the `agy` session. No `api-key` header.
+  static func fetchGeminiAgyModels(
+    baseURL: String = GeminiAgyClient.defaultHost,
+    ensureToken: (_ force: Bool) throws -> String = { force in try GeminiAgySession.ensureFreshAccessToken(force: force) },
+    perform: (URLRequest) throws -> (status: Int, headers: [String: String], data: Data) = { try performSync($0) }
+  ) async throws -> [FetchedModel] {
+    do {
+      return try GeminiAgyClient.fetchModels(baseURL: baseURL, ensureToken: ensureToken, perform: perform)
+    } catch let error as GeminiAgyClient.ClientError {
+      switch error {
+      case .notSignedIn:
+        throw FetchError.geminiAgySessionMissing
+      case .rateLimited(let retryAfter):
+        throw FetchError.geminiRateLimited(retryAfter: retryAfter)
+      default:
+        throw FetchError.transport(error.localizedDescription)
+      }
+    }
+  }
+
+  private static func performSync(_ request: URLRequest) throws -> (status: Int, headers: [String: String], data: Data) {
+    let (data, response) = try awaitResult(request)
+    let http = response as? HTTPURLResponse
+    var headers: [String: String] = [:]
+    http?.allHeaderFields.forEach { key, value in
+      if let key = key as? String, let value = value as? String { headers[key] = value }
+    }
+    return (http?.statusCode ?? 0, headers, data)
+  }
+
+  private static func awaitResult(_ request: URLRequest) throws -> (Data, URLResponse) {
+    let semaphore = DispatchSemaphore(value: 0)
+    var result: Result<(Data, URLResponse), Error>?
+    URLSession.shared.dataTask(with: request) { data, response, error in
+      if let error {
+        result = .failure(error)
+      } else if let data, let response {
+        result = .success((data, response))
+      } else {
+        result = .failure(URLError(.badServerResponse))
+      }
+      semaphore.signal()
+    }.resume()
+    semaphore.wait()
+    return try result!.get()
   }
 
   /// Grok CLI OAuth catalog: `GET {base}/models-v2` with session from `~/.grok/auth.json`.
